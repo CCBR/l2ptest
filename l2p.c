@@ -6,8 +6,8 @@
 2) updategenes()
 3) ensembl2gene()
 4) pretty print  , pvals  if want raw data frame DOUBLE CHECK AGAINST EMAIL
-5) Another column will be called “%Gene Hits per Pathway”, explained as  (A/(A+B))   
-6) bench marks permute vs. non . plot results. 
+5) Another column will be called “%Gene Hits per Pathway”, explained as  (A/(A+B))
+6) bench marks permute vs. non . plot results.
 
 vi l2p2.c ; make
 gcc --Wall -Os -o l2p2 pwgenes.c small.c
@@ -134,24 +134,21 @@ OR=(DE/HE)/(DN/HN)
 a/b / c/d
 
 */
-#define NELSON_C 0
+#define NELSON_C 1
+#define NELSON_TEST 1
 
 // RICH:  for me running C program:
-#if NELSON_C
-#define DEGLISTNAME "deglistupinmalig.txt"
-#define OUTPUTFILE "up_in_malig test perm p correction.txt"
+#if NELSON_TEST
+#define DEGLISTNAME "brca_up_in_meta500.txt"
+#define OUTPUTFILE "test_GWN_output.txt"
+#define TECHOUTPUTFILE "test_GWN_tech_output.txt"
 //#define DEGLISTNAME "deglistupinreactive.txt"
 // RICH: will need to be passed paramter:
 #endif
+
 #define SCALE_UNIVERSE 1
-#define NUM_PERMUTES 10000
-
-// QVAL_PERMUTE still being tested, keep 0
-#define NUM_QVAL_PERMUTES 0
+#define NUM_PERMUTES 1000000 
 #define SIG_P 0.05
-
-#define NELSON 0
-   // George Nelson's method
 
 #ifdef L2P_USING_R
 #include <R.h>
@@ -169,6 +166,7 @@ a/b / c/d
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
 
 #if 1
  // support fisher.c GPL code 
@@ -209,13 +207,18 @@ unsigned int ingenes[MAX_INGENES];
 unsigned int ingenecnt;
 unsigned int *gene_path_cts;
 unsigned int *deg_path_cts;
+unsigned int aug_deg_count = 0;
+unsigned int deg_count_sum;
 unsigned int real_genect = 0;
 unsigned int aug_gene_ct = 0;
 unsigned int *auguniverse;
 unsigned int n_sig_paths = 0;
-#if 0
+double mean_deg_gpcount;
+double mean_u_gpcount;
+
+#if NELSON_TEST
 FILE *path_gene_countsfile;
-FILE *gene_path_countsfile;
+// FILE *gene_path_countsfile;
 #endif
 
 
@@ -249,6 +252,111 @@ fprintf(stderr,"in dump_used_paths() num=%d msg=[%s]\n",num,msg); fflush(stderr)
     return;
 }
 #endif
+
+void radix_ui(register unsigned int vector[], register const unsigned int size) 
+{
+
+    /* Support for variable sized integers without overflow warnings */
+    const int MAX_UINT__ = ((((1 << ((sizeof(unsigned int) << 3) - 2)) - 1) << 1) + 1);
+//    const int LAST_EXP__ = (sizeof(unsigned int) - 1) << 3;
+    
+    /* Define std preliminary, constrain and expression to check if all bytes are sorted */
+#define PRELIMINARY__ 100
+#define MISSING_BITS__ exp < (sizeof(unsigned int) << 3) && (max >> exp) > 0
+    /* Check for biggest integer in [a, b[ array segment */
+#define LOOP_MAX__(a, b)				\
+    for(s = &vector[a], k = &vector[b]; s < k; ++s) {	\
+	if(*s > max)  {					\
+	    max = *s;					\
+	}						\
+    }
+    
+    /* b = helper array pointer ; s, k and i = array iterators */
+    /* exp = bits sorted, max = maximun range in array         */
+    /* point = array of pointers to the helper array           */
+    register unsigned int *b, *s, *k;
+    register unsigned int exp = 0;
+    register unsigned int max = exp;
+    unsigned int i, *point[0x100];
+    int swap = 0;
+    
+    /* Set preliminary according to size */
+    const unsigned int preliminary = (size > PRELIMINARY__) ? PRELIMINARY__ : (size >> 3);
+    
+    /* If we found a integer with more than 24 bits in preliminar, */
+    /* will have to sort all bytes either way, so max = MAX_UINT__ */
+    LOOP_MAX__(1, preliminary);
+    if(max <= (MAX_UINT__ >> 7)) {	
+	LOOP_MAX__(preliminary, size);
+    }
+    
+    /* Helper array initialization */
+    b = (unsigned int *)malloc(sizeof(unsigned int) * size);
+    
+    /* Core algorithm: for a specific byte, fill the buckets array, */
+    /* rearrange the array and reset the initial array accordingly. */
+#define SORT_BYTE__(vec, bb, shift)					\
+    unsigned int bucket[0x100] = {0};					\
+    register unsigned char *n = (unsigned char *)(vec) + (exp >> 3),*m; \
+    for(m = (unsigned char *)(&vec[size & 0xFFFFFFFC]); n < m;) {	\
+	++bucket[*n]; n += sizeof(int);					\
+	++bucket[*n]; n += sizeof(int);					\
+	++bucket[*n]; n += sizeof(int);					\
+	++bucket[*n]; n += sizeof(int);					\
+    }									\
+    for(n = (unsigned char *)(&vec[size & 0xFFFFFFFC]) + (exp >> 3),	\
+	    m = (unsigned char *)(&vec[size]); n < m;) {		\
+	++bucket[*n]; n += sizeof(int);					\
+    }									\
+    s = bb;								\
+    int next = 0;							\
+    for(i = 0; i < 0x100; ++i) {					\
+	if(bucket[i] == size) {						\
+	    next = 1;							\
+	    break;							\
+	}								\
+    }									\
+    if(next) {								\
+	exp += 8;							\
+	continue;							\
+    }									\
+    for(i = 0; i < 0x100; s += bucket[i++]) {				\
+	point[i] = s;							\
+    }									\
+    for(s = vec, k = &vec[size]; s < k; ++s) {				\
+	*point[(*s shift) & 0xFF]++ = *s;				\
+    }									\
+    swap = 1 - swap;							\
+    exp += 8;
+    
+    /* Sort each byte (if needed) */
+    while(MISSING_BITS__) {
+	if(exp) {
+	    if(swap) {
+		SORT_BYTE__(b, vector, >> exp);
+	    } else {
+		SORT_BYTE__(vector, b, >> exp);
+	    }
+	} else {
+	    SORT_BYTE__(vector, b, );
+	}
+    }
+
+    if(swap) {
+	memcpy(vector, b, sizeof(unsigned int) * size);
+    }
+    
+    /* Free helper array */
+    free(b);
+    
+    /* Undefine function scoped macros for eventual later use */
+#undef PRELIMINARY__
+#undef MISSING_BITS__
+#undef LOOP_MAX__
+#undef SORT_BYTE__
+    
+}
+
 
 char *type2string(int type)
 {
@@ -444,10 +552,12 @@ static void benjaminihochberg(int n,double pvals[], double returnpvals[])
 //    struct ordertype *ro;
 //    struct ordertype *intermed;
 
+fprintf(stderr,"rpf in benjaminihochberg\n"); fflush(stderr); 
+
     i = (struct ordertype *)malloc((sizeof(struct ordertype))*n);
     for (k=n,j=0;j<n;j++,k--) (i+j)->order=k;
 
-#define RDEBUG 0
+#define RDEBUG 1
 #if RDEBUG
 FILE *fp;
 fp = fopen("test.pvals","w");
@@ -558,6 +668,7 @@ static inline int quickSort(unsigned int *arr, int elements)
   }
   return 0; 
 }
+
 static inline void subsamp(unsigned int s[], int n, int k)
 {
     int i,j,dncnt;
@@ -572,6 +683,7 @@ static inline void subsamp(unsigned int s[], int n, int k)
     }
     return;
 }
+
 int permute(int idx,struct used_path_type *uptr,unsigned int real_universe_cnt,unsigned int *real_universe, int ingenecnt)
 {
     unsigned int r[40002];
@@ -671,7 +783,7 @@ int do_pvals_and_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], u
     int a2 , b2 , c2 , d2;
 
 
-// fprintf(stderr,"debug in do_pvals_and_bh() ingenecnt=%d num_used_paths=%d real_universe_cnt=%d oneside=%d\n",ingenecnt,num_used_paths,real_universe_cnt,oneside); fflush(stderr); 
+fprintf(stderr,"debug in do_pvals_and_bh() ingenecnt=%d num_used_paths=%d real_universe_cnt=%d oneside=%d\n",ingenecnt,num_used_paths,real_universe_cnt,oneside); fflush(stderr); 
 
     pv = 1.0;
 // fprintf(stderr,"in do_pvals_and_bh() ingenecnt=%d num_used_paths=%d real_universe_cnt=%d 2\n",ingenecnt,num_used_paths,real_universe_cnt); fflush(stderr); 
@@ -696,48 +808,6 @@ int do_pvals_and_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], u
                  return -2;
             }
         }
-#if NELSON
-/*
-A = u - p - h
-B = u - l 
-C = l - h 
-D = h
-*/
-int u,p,h,l,a,b,c,d;
-u = real_universe_cnt;
-p = uptr->numfixedgenes;
-h = localhitcnt;
-l = ingenecnt;
-a = u - p - h;
-b = u - l;
-c = l - h;
-d = h;
-        if (oneside)
-        {
-            pv = fisher22_1sided((uint32_t)a, (uint32_t)b, (uint32_t)c, (uint32_t)d, (uint32_t)1, (uint32_t)1);
-#if 0
- if ((pv < 0.0) || (pv > 1.0))
- {
- fprintf(stderr,"error pv=%f\n"pv);
- exit(0);
- }
-#endif
-        }
-        else
-        {
-            pv = exact22(a,b,c,d);
-        }
-        enrichment_score = ( ((double)localhitcnt / (double)uptr->numfixedgenes) - ((double)ingenecnt/(double)real_universe_cnt) );
-	enrichment_score = 100.0 * enrichment_score;
-	// FIX fix 
-	// 6.	Another column will be called “%Gene Hits per Pathway”, explained as  (A/(A+B))
-        *(pvals+i) = uptr->pval = pv;
-        uptr->a = a;
-        uptr->b = b;
-        uptr->c = c;
-        uptr->d = d;
-        uptr->enrichment_score = enrichment_score;
-#endif // nelson 
 /*
      4  pwhitcount            number of genes hit in pathway
      5  pwnohitcount          pathway    number of genes in the pathway
@@ -811,7 +881,6 @@ for (i=0 ; i<num_used_paths ; i++)
     fdrs = (double *)malloc((size_t)(sizeof (double)*num_used_paths)); 
     if (!fdrs) { free(pvals); /* clean up */ fprintf(stderr,"ERROR: no memory in do_pvals_and_bh() 2\n"); return -3; }
 
-// fprintf(stderr,"rpf before benjaminihochberg\n"); fflush(stderr); 
 
 #if 0
 for (i=0 ; i<num_used_paths ; i++)
@@ -819,6 +888,7 @@ for (i=0 ; i<num_used_paths ; i++)
 fprintf(stderr,"rpf checking 2 *(pvals+i) %d  %f\n",i,*(pvals+i) ); 
 }
 #endif
+fprintf(stderr,"rpf before benjaminihochberg\n"); fflush(stderr); 
     benjaminihochberg(num_used_paths,pvals,fdrs);
 // fprintf(stderr,"rpf after benjaminihochberg\n"); fflush(stderr); 
     for (i=0 ; i<num_used_paths ; i++)
@@ -1098,19 +1168,17 @@ void put_tree_to_array(struct tree_type *node, unsigned int puthere[], int *inde
     }
     return;
 }
-
 void free_tree_with_count(struct tree_with_count *node)
 {
     if (node)
     {
         if (node->all_gene_paths) free(node->all_gene_paths);
-        if (node->left) free_tree_with_count(node->left); // recursive calls  
+        if (node->left) free_tree_with_count(node->left); // recursive calls
         if (node->right)free_tree_with_count(node->right);
-        free(node); 
+        free(node);
     }
     return;
 }
-
 int put_to_tree(unsigned int this_gene, struct tree_with_count *head) // tree below head keeps growing; we will keep using it
 {
     // has to:
@@ -1185,7 +1253,6 @@ void malloc_pathpointers(struct tree_with_count *node) // counts aligned with un
     }
     return;
 }
-
 int path_pointers_to_tree(unsigned int this_gene, struct used_path_type *this_path, struct tree_with_count *head)
 // following put_to_tree, but tree is already there
 // I think right, have to find the unsorted genes here, this is guide for filling the pointer
@@ -1228,10 +1295,12 @@ int path_pointers_to_tree(unsigned int this_gene, struct used_path_type *this_pa
           }
      }
 }
+
 static inline void put_count_tree_to_array(struct tree_with_count *node, unsigned int universe[], unsigned int *index_ptr, unsigned int *aug_ptr) // counts aligned with universe (real_universe)
 {
     // no trap for going off the tree
     unsigned int ui;
+    struct used_path_type *thispath;
     if (node != (void *)0) //  trap against going off the tree, but are we catching genes with no match?
     {
         //printf("left\t");
@@ -1240,16 +1309,19 @@ static inline void put_count_tree_to_array(struct tree_with_count *node, unsigne
         // printf("tst tree %d\n",node->val);
         gene_path_cts[*index_ptr] = node->count;
         ++*index_ptr;
-#if NELSON_C
-// debug
-        if (gene_path_countsfile) fprintf(gene_path_countsfile, "%d\t%d\n", node->val, node->count);
+#if NELSON_TEST
+        // debug
+        // fprintf(gene_path_countsfile, "%d\t%d\n", node->val, node->count);
 #endif
         for (ui = 0; ui < node->count; ui++)
         {
             auguniverse[*aug_ptr] = node->val; // to randomly select genes for permutation test, weighted by pathway count
             aug_treepointers[*aug_ptr] = treepointers[*index_ptr] = node; // multiple pointers to same node,
             //printf("%d %d\n", *aug_ptr, node->val);
-           //augreverse[*aug_ptr] = node; // replaced by
+            //augreverse[*aug_ptr] = node; // replaced by
+            // gp counts to the pathway
+            thispath = node->all_gene_paths[ui];
+            thispath->pathcountsum += node->count; // this sums the gene gp cts for all hits in the pathway
             *aug_ptr = *aug_ptr + 1;
         }
         //printf("right\t");
@@ -1267,6 +1339,7 @@ static inline void put_deg_tree_to_array(struct tree_with_count *node, unsigned 
         if (node->deg)
         {
             deg_path_cts[*index_ptr] = node->count;
+            aug_deg_count += node->count;
             ingenes[*index_ptr] = node->val;
             ++*index_ptr;
         }
@@ -1276,14 +1349,22 @@ static inline void put_deg_tree_to_array(struct tree_with_count *node, unsigned 
 }
 int degs_to_tree(unsigned int this_gene, struct tree_with_count *head) // tree below head keeps growing; we will keep using it
 {
-     struct tree_with_count *z;
+    unsigned int i;
+    struct tree_with_count *z, *node;
+    struct used_path_type *thispath;
      z = head;
      while (1) // follow the tree down to the bottom switching right or left by gene number. If hit void, gene not in universe. Then outer loop takes to next gene
      {
           if (z->val == this_gene)
           {
               z->deg = 1;
+              node = z;
               ++deg_count;
+              for (i=0; i<node->count; i++)
+              {
+                  thispath = node->all_gene_paths[i];
+                  thispath->pathhits_gpsum += node->count; // this sums the gene gp cts for all hits in the pathway
+              }
               return(1);
           }
           else if (this_gene < z->val)
@@ -1315,14 +1396,13 @@ static void chooseAugRandList(unsigned int n, unsigned int m, unsigned int seed,
     double randrslt;
     double scale = (double) (n-1)/(RAND_MAX);
 #ifdef L2P_USING_R
-   // method to shut up compiler warnings 
-#define UNUSED(x) (void)(x)
-UNUSED(seed);
-    // user can set the seed, by calling a function like this  set.seed(12345) , before calling
-    // don't need to do this :  GetRNGstate();
+       // method to shut up compiler warnings
+    #define UNUSED(x) (void)(x)
+    UNUSED(seed);
+        // user can set the seed, by calling a function like this  set.seed(12345) , before calling
 #else
     static int inited_random_flag = 0;
-    if (inited_random_flag == 0)  
+    if (inited_random_flag == 0)
     {      // should go elsewhere; where do we set for test run (fixed seed)?
            // for non R, the seed gets passed in as a paramter.  0 means let this code decide (randome based on time and process id "PID" )
         if (seed != 0) srand(seed);
@@ -1387,23 +1467,44 @@ UNUSED(seed);
     }
 }/**/
 
+
+#if 0
 // rpf int tablecalc(struct used_path_type usedpaths[], unsigned int num_used_paths, unsigned int *real_universe, unsigned int real_universe_cnt,int oneside)
+ // *** rpf does not seem to be called 
+int gpcount_correction(struct used_path_type usedpaths[], unsigned int num_used_paths) // ,int oneside)
+{
+    unsigned int i;
+    double mean_gpct;
+    struct used_path_type *uptr; // used path pointer
+    for (i=0 ; i<num_used_paths;i++)
+    {
+        uptr = (usedpaths+i);
+        mean_gpct =uptr->pathhits_gpsum/uptr->hitcnt;
+        //if (uptr->hitcnt == 0) uptr->gpcc_p = 99;
+        //else
+            uptr->gpcc_p = pow(mean_gpct/mean_u_gpcount, log(uptr->hitcnt))*uptr->pval;
+    }
+    return 0;
+}
+#endif
+
 int tablecalc(struct used_path_type usedpaths[], unsigned int num_used_paths, unsigned int real_universe_cnt) // ,int oneside)
 {
-    double enrichment_score, OR, pv;
-    unsigned int i, I=0;
+    double enrichment_score, OR, pv, aug_pv;
+    double aug_scale;
+    unsigned int i;
     double *pvals;
     double *fdrs;
     unsigned int localhitcnt;
     struct used_path_type *uptr; // used path pointer
-    int a,b,c,d;
+    int a,b,c,d, A,B,C,D;
+    int A_scaled, B_scaled, C_scaled, D_scaled;
     
-//     fprintf(stderr,"debug in tablecalc() ingenecnt=%d num_used_paths=%d real_universe_cnt=%d \n",ingenecnt,num_used_paths,real_universe_cnt); fflush(stderr);
+    //fprintf(stderr,"debug in tablecalc() ingenecnt=%d num_used_paths=%d real_universe_cnt=%d \n",ingenecnt,num_used_paths,real_universe_cnt); fflush(stderr);
     
     pvals = (double *)malloc((size_t)(sizeof (double)*(num_used_paths)));  // all in pathway struct, don't need
     if (!pvals) { fprintf(stderr,"ERROR: no memory\n"); fflush(stderr); return -1; }
     memset(pvals,0,sizeof (double)*(num_used_paths));
-    n_sig_paths = 0;
     for (i=0 ; i<num_used_paths;i++)
     {
         uptr = (usedpaths+i);
@@ -1435,7 +1536,7 @@ int tablecalc(struct used_path_type usedpaths[], unsigned int num_used_paths, un
         d = localhitcnt;
         c = ingenecnt - localhitcnt;
         b = uptr->numfixedgenes - localhitcnt;
-        a = real_universe_cnt - uptr->numfixedgenes - ingenecnt;
+        a = real_universe_cnt - uptr->numfixedgenes - ingenecnt + localhitcnt;
 
         /* new way : */
         //j *(pvals+i) = uptr->pval;
@@ -1450,7 +1551,7 @@ int tablecalc(struct used_path_type usedpaths[], unsigned int num_used_paths, un
         {
             OR = ((double)a*(double)d)/((double)c*(double)b);
             uptr->OR = OR;
-#if 0
+#if NELSON_TEST
             if (OR > 1000)
             {
                 fprintf(stderr,"Note:big OR %f, path %s\n", OR, uptr->acc);
@@ -1465,48 +1566,66 @@ int tablecalc(struct used_path_type usedpaths[], unsigned int num_used_paths, un
             printf("%s", uptr->name);
         }*/
         uptr->pval = pv;
+#if 0
         if ((pv < SIG_P) & (OR > 1)) ++n_sig_paths;
+#endif
+        D = uptr->pathhits_gpsum; //wrong
+        C = aug_deg_count - D; // or d?
+        B = uptr->pathcountsum - D;
+        A = aug_gene_ct - B - C - D;
+        aug_scale = (float)real_universe_cnt/((float)(aug_gene_ct + d));
+        uptr->A_scaled = A_scaled = ceil(A*aug_scale);
+        uptr->B_scaled = B_scaled = ceil(B*aug_scale);
+        uptr->C_scaled = C_scaled = ceil(C*aug_scale);
+        uptr->D_scaled = D_scaled = d; // not scaled!
+        aug_pv = exact22(A_scaled,B_scaled,C_scaled,D_scaled);
+        uptr->gpcc_p = aug_pv;
+        if(C_scaled*B_scaled != 0)
+        {
+            uptr->gpcc_OR = ((double)A_scaled*(double)D_scaled)/((double)C_scaled*(double)B_scaled);
+        }
+        else uptr->gpcc_OR = 99999;
 
     }
-    sig_path_ptr = malloc((sizeof(struct used_path_type *)*n_sig_paths));
+#if 0
+        sig_path_ptr = malloc((sizeof(struct used_path_type *)*n_sig_paths));
+#endif
     // HERE WE WOULD WANT TO SORT THE SIGNIFICANT P VALUES, FOR SPEED LATER
-//    struct used_path_type *tstptr;
-    I = 0;
-    for (i=0; i<num_used_paths; i++)
-    {
-        uptr = (usedpaths+i);
-        if((uptr->pval < SIG_P) & (uptr->OR > 1))
-        {
-            *(sig_path_ptr+I) = uptr; // since unlabelled, essential that this array of pointers has the same order as auguniverse
-//            tstptr = *(sig_path_ptr+I);
-            //printf("%11.2e\n", uptr->pval);
-            uptr->rand_paths_more_sig = 0;
-            I++;
-            //printf("%11.2e %11.2e %s\n", tstptr->pval, tstptr->pval3, tstptr->name);
-            //printf("%11.2e %11.2e %s\n", (*(sig_path_ptr+I))->pval, (*(sig_path_ptr+I))->pval3, (*(sig_path_ptr+I))->name);
-        }
-        if(I>n_sig_paths)
-        {
-            printf("trouble in setting up sig paths\n");  //CLEAN UP
-            exit(1);
-        }
-    }
+    // struct used_path_type *tstptr;
     //  I HAVEN'T LOOKED AT THE FDR CODE
     fdrs = (double *)malloc((size_t)(sizeof (double)*num_used_paths));
     if (!fdrs) { free(pvals); /* clean up */ fprintf(stderr,"ERROR: no memory in do_just_bh() 2\n"); return -3; }
-    #if 0
+#if 0
      // debug
     fprintf(stderr,"before benjaminihochberg %d %p %p\n",num_used_paths,pvals,fdrs); fflush(NULL);
     for (i=0;i<num_used_paths;i++)
     {
     fprintf(stderr," pv %d %f\n",i,*(pvals+i));
     }
-    #endif
+#endif
+#if 1
+ // rpf fix  : need to get gpcc pvals, not FE pvals into pvals 
+        //j *(pvals+i) = uptr->pval;
+    for (i=0;i<num_used_paths;i++)
+    {
+          *(pvals+i) = usedpaths[i].gpcc_p ;
+    }
+#endif
+fprintf(stderr,"rpf here before xxx benjaminihochberg(%d,%p,%p), num_used_paths=%d\n",num_used_paths,pvals,fdrs,num_used_paths); fflush(NULL);
     benjaminihochberg(num_used_paths,pvals,fdrs);
+fprintf(stderr,"rpf here after xxx benjaminihochberg(%d,%p,%p), num_used_paths=%d\n",num_used_paths,pvals,fdrs,num_used_paths); fflush(NULL);
+#if 0
+   // rpf .  No.  don't put here, put in gpcc_fdr
     for (i=0 ; i<num_used_paths ; i++)
     {
          usedpaths[i].fdr = *(fdrs+i);
     }
+#else
+    for (i=0 ; i<num_used_paths ; i++)
+    {
+         usedpaths[i].gpcc_fdr = *(fdrs+i);
+    }
+#endif
     free(pvals);
     free(fdrs);
     return 0;
@@ -1522,56 +1641,50 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
      From this list randomly select as many genes as on your DEG list.
      Replace repeats, need a list of unique genes
      ii.     Create the contingency table for each pathway of interest (list of top pathways)
-     iii.     Obtain and record its p value
+     iii.    Obtain and record its p value
      iv.     For each pathway of interest keep count of how many of the 200 permutations produced more significant p values than the real data
      
      Repeat a) etc. 200 times
      The counts/200 are approximate p values for the pathways.
 */
-    unsigned int i,I,j,k,K;
+    unsigned int i,I,j,k, ll;
     int utilctr;
     unsigned int this_gene;
     unsigned int ui = 0;
-    unsigned int d_up = 0, d_down = 0, d_equal = 0;
-    unsigned int a, rand_d, rand_c, rand_b;
-    int var_d;
-    double randOR;
-    unsigned int sig_rand_p_ct = 0;
-    unsigned int aug_gene_ct = 0;
+    unsigned int ui_ej = 0;
     unsigned int *randgenesindex = (unsigned int *)0;
     unsigned int *pool = (unsigned int *)0;
-    double pv;
     struct tree_with_count *head = (struct tree_with_count *)0;
     struct used_path_type **augreverse = (struct used_path_type **)0;
     struct used_path_type  *this_path = (struct used_path_type *)0;
     unsigned int *index_ptr = (unsigned int *)0;
     unsigned int *aug_ptr = (unsigned int *)0;
     struct used_path_type *uptr = (struct used_path_type *)0;    // used path pointer
+    double *pspace = (double *)0;   // array of pvalues[num_used_paths*NUM_PERMUTES]
     struct used_path_type *thispath;
     struct tree_with_count *thisnode = (struct tree_with_count *)0;
-    double *pspace = (double *)0;   // array of pvalues[num_used_paths*NUM_PERMUTES]
+#if NELSON_TEST
     FILE *deg_path_count_file = (FILE *)0;
-    FILE *predict_fp = (FILE *)0;
-    FILE *pathgenes = (FILE *)0;
-
+#endif
+    FILE *pathgenes_fp = (FILE *)0;
 #if 0
-   // unsigned int *gene_ct;
-    struct used_path_type *uptrx = (struct used_path_type *)0;    // used path pointer; utility
+    unsigned int d_up = 0;
+    usnigned int d_down = 0;
+    unsigned int d_equal = 0;
+    unsigned int a, rand_d, rand_c, rand_b;
+    int var_d;
+    double randOR;
+    unsigned int sig_rand_p_ct = 0;
+    double pv;
 #endif
 
-// fprintf(stderr,"in GPCC\n"); fflush(NULL); 
+fprintf(stderr,"rpf in GPCC()\n"); fflush(NULL);
+
     //int *pool = (unsigned int *)0;
     // Set up augmented universe, count_tree, and pointers to pathways
-#if NELSON_C
-#if 0
-    gene_path_countsfile = fopen("gene_pathway counts.txt", "w");
-    deg_path_count_file = fopen("deg pathway counts.txt", "w");
-    predict_fp = fopen("tst predictor of p vals.txt", "w");
-#else
-    gene_path_countsfile = (FILE *)0;
-    deg_path_count_file =  (FILE *)0;
-    predict_fp =  (FILE *)0;
-#endif
+#if NELSON_TEST
+//    gene_path_countsfile = fopen("gene_pathway_counts.txt", "w");
+    deg_path_count_file = fopen("deg_pathway_counts.txt", "w");
 #endif
     //path_gene_countsfile = fopen("pathway_gene counts.txt", "w");
     if (!usedpaths)
@@ -1580,9 +1693,9 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
         return (unsigned int)0 ;
     }
     // get count of all genes with repititions in pathways
-#if 0
-    pathgenes = fopen("paths_genes_names.txt", "w");
-#endif
+    #if 0
+        pathgenes_fp = fopen("paths_genes_names.txt", "w");
+    #endif
     for (i=aug_gene_ct=0 ; i<num_used_paths ; i++)
     {         // get number of genes in all pathways, count duplicated gene names
         uptr = (usedpaths+i);
@@ -1590,15 +1703,18 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
         //fprintf(path_gene_countsfile, "%s \t %d\n", uptr->name, uptr->numfixedgenes);
         /*for (j=0;j<uptr->numfixedgenes;j++)
         {
-            fprintf(pathgenes, "%s\t %s\t %d\n", uptr->name, uptr->acc, uptr->egids[j]);
+            fprintf(pathgenes_fp, "%s\t %s\t %d\n", uptr->name, uptr->acc, uptr->egids[j]);
         }*/
     }
-    if (pathgenes) fflush(pathgenes);
+fprintf(stderr,"rpf debug aug_gene_ct = %d\n",aug_gene_ct); fflush(stderr); 
+    if (pathgenes_fp) fflush(pathgenes_fp);
 #if 1
-// fix fix fix  rpf
+    // fix fix fix  rpf
     auguniverse = malloc((aug_gene_ct+1) * sizeof(unsigned int)); // seems to be short by one uint , so just add it
+    mean_u_gpcount = (double) aug_gene_ct/(double) real_universe_cnt;
 #else
     auguniverse = malloc(aug_gene_ct * sizeof(unsigned int));
+    mean_u_gpcount = (float) aug_gene_ct/(float) real_universe_cnt;
 #endif
     if (!auguniverse)
     {
@@ -1618,9 +1734,9 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
             *(auguniverse+k) = *(uptr->egids + j);
             *(augreverse+k) = uptr; // since unlabelled, essential that this array of pointers has the same order as auguniverse
             k++;
-            if (k > aug_gene_ct)
+            if (k > aug_gene_ct) // was just > -- ( rpf xxx )
             {
-                fprintf(stderr,"in GPCC ERROR i=%d k=%d\n",i,k);  fflush(stderr);
+                fprintf(stderr,"ERROR: in GPCC i=%d k=%d >= aug_gene_ct=%d . Overflow number of genes.\n",i,k,aug_gene_ct);  fflush(stderr);
                 exit(0);
             }
         }
@@ -1630,19 +1746,18 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
     real_genect = 1;
     head->count = 1; // each node starts with count 1
     head->deg = 0;
-    head->left=(void *)0;
-    head->right=(void *)0;
+    head->left = head->right = (void *)0;
     // run first in get used universe, or separate function
     // this gets counts
     // malloc to counts
     head->all_gene_paths = (void *)0;
     head->pathindex = 0;
     for (ui=1 ; ui<aug_gene_ct ; ui++)
-     {
-         this_gene = *(auguniverse+ui);
-         this_path = *(augreverse+ui);
-         put_to_tree(this_gene, head);
-      }
+    {
+        this_gene = *(auguniverse+ui);
+        this_path = *(augreverse+ui);
+        put_to_tree(this_gene, head);
+    }
     
     index_ptr = malloc(sizeof(unsigned int));
     memset(index_ptr,0,sizeof(unsigned int));
@@ -1656,21 +1771,21 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
     gene_path_cts = malloc(sizeof(unsigned int)*(real_genect+1)); // valgrind complains so add 1
     memset(gene_path_cts ,0,sizeof(unsigned int)*(real_genect+1));
 
-     malloc_pathpointers(head);
-// fprintf(stderr,"test after malloc_pathpointers\n"); fflush(NULL);
+    malloc_pathpointers(head);
+     // fprintf(stderr,"test after malloc_pathpointers\n"); fflush(NULL);
     utilctr = 0;
     for (ui=0 ; ui<aug_gene_ct ; ui++)
     {
          this_gene = *(auguniverse+ui);
          this_path = *(augreverse+ui);
          path_pointers_to_tree(this_gene, this_path, head); // recall path_pointers are needed for permutation test
-        if(this_gene == 7040) ++utilctr;
+         if(this_gene == 7040) ++utilctr;   // rpf - what is this ?
     }
     *index_ptr = 0; // fcn passes down pointer
     *aug_ptr = 0; // fcn passes down pointer
     put_count_tree_to_array(head,real_universe,index_ptr, aug_ptr); // n.b. auguniverse is now a global variable--sorted by this recursive function
     deg_count = 0;
-    for(i=0;i<ingenecnt;i++)
+    for(i=0 ; i<ingenecnt ; i++)
     {
         this_gene = ingenes[i];
         degs_to_tree(this_gene, head);
@@ -1678,31 +1793,70 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
 // xxx
     ingenecnt = deg_count; // should just use deg_count everywhere
     deg_path_cts = malloc(sizeof(unsigned int)*deg_count);
+    memset(deg_path_cts,0,sizeof(unsigned int)*deg_count);
     *index_ptr = 0;
 // fprintf(stderr,"in GPCC 2.0 head=%p index_ptr=%p\n",head,index_ptr); fflush(NULL);
-    put_deg_tree_to_array(head,index_ptr); // not getting deg count here, should I?
+    aug_deg_count = 0; // redundant
+    put_deg_tree_to_array(head,index_ptr); // not getting deg count here, should I?;  note now could integrate with put_count_tree_to_array
+    // no longer used I think
+    for (i=0; i<deg_count; i++) deg_count_sum += deg_path_cts[i];
+fprintf(stderr,"before mean_deg_gpcount = deg_count_sum/deg_count;\n"); fflush(NULL);
+fprintf(stderr,"deg_count_sum = %d\n",deg_count_sum); fflush(NULL);
+fprintf(stderr,"deg_count = %d\n",deg_count); fflush(NULL);
+    mean_deg_gpcount = deg_count_sum/deg_count;
+fprintf(stderr,"after mean_deg_gpcount = deg_count_sum/deg_count;\n"); fflush(NULL);
+    for (i=j=0 ; i<num_used_paths ; i++)
+    {
+        uptr = (usedpaths+i);
+        if (!uptr->egids) continue;
+        uptr->aughitcnt = j = k = ll = 0;
+        while ((j<uptr->numfixedgenes) && (k < deg_count))
+        {
+            ui_ej = *(uptr->egids+j);
+            ui = ingenes[k];
+            if (ui_ej == ui)
+            {
+                *((uptr->genehits) + (ll++)) = ui; // remember, because need to print out later
+                uptr->aughitcnt += deg_path_cts[k]; // WRONG?  IF SO, WHY?
+                k++;
+                j++;
+                // aug hit count for aug contingency table
+                continue;
+            }
+            else if (ui_ej < ui) j++;
+            else                 k++;
+        }
+        uptr->hitcnt = ll;
+    }
+
 // fprintf(stderr,"in GPCC 2.1 deg_path_count_file=%p \n",deg_path_count_file); fflush(NULL);
+#if NELSON_TEST
     for (i=0;i<deg_count;i++) 
     {
          if (deg_path_count_file) fprintf(deg_path_count_file, "%d\n  ", deg_path_cts[i]);
     }
-    
+    fclose(deg_path_count_file); 
+    deg_path_count_file = (FILE *)0;
+#endif
     // now I will select randomly from auguniverse
     // this produces a set of gene numbers
     // For each gene number, in I have an array of pointers to the pathways--
     // --in the pathway count list
     // rows will correspond to pathways in ptr_from_unique. Need a consistent list of pathways (1-n); the row refers to this list
     randgenesindex = malloc(sizeof(unsigned int *)*deg_count);
-    // thispath = malloc(sizeof(struct used_path_type *));
+    //thispath = malloc(sizeof(struct used_path_type *));
 //     int oneside = 1;
     // tablecalc(usedpaths, num_used_paths, real_universe, real_universe_cnt, oneside);
-    tablecalc(usedpaths, num_used_paths,  real_universe_cnt); // mallocs sig_path_ptr
+    tablecalc(usedpaths, num_used_paths,  real_universe_cnt);
+    // FET has been done in tablecalc? Now do correction
+    // gpcount_correction(usedpaths, num_used_paths);
     //*setseed = 12345; // for testing, but get an error; never malloc'd integer storage
+#if NELSON_C
     for (i = 0; i < NUM_PERMUTES; i++)
     {
         // test: at i = 0, put in the actual genes
         // Choose ingenecnt unique genes
-//         if ((i % 500) == 0) { fprintf(stderr,"permute i = %d\n", i); fflush(NULL); }
+        if ((i % 1000) == 0) { fprintf(stderr,"permute i = %d\n", i); fflush(NULL); }
         for (I=0 ; I<num_used_paths ; I++) // test, remove
         {
             uptr = (usedpaths+I);
@@ -1713,13 +1867,15 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
         // NEED R SWITCH HERE, FOR SEED
         if (SCALE_UNIVERSE) chooseAugRandList(aug_gene_ct, ingenecnt, 0, randgenesindex);
         else chooseRandList(real_universe_cnt, ingenecnt, seed, randgenesindex); // FIX SEED ISSUE
+#if 0
         //for(j=0;j<ingenecnt;j++) printf("geneindex, gene, %d %d\n", randgenesindex[j], auguniverse[randgenesindex[j]]);
-       /* if(i == 1)
+        /*if(i == 1)
         for(j=0;j<ingenecnt;j++)
         {
-            printf("%d\n", aug_treepointers[randgenesindex[j]]->val);
+            printf("%d\t%d\n", i, aug_treepointers[randgenesindex[j]]->val);
         }
-        printf("\n\n");*/
+        printf("\n\n"); */
+#endif
         for(j=0;j<ingenecnt;j++)
         {
             if (SCALE_UNIVERSE) thisnode = aug_treepointers[randgenesindex[j]];
@@ -1730,16 +1886,12 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
             {
                 printf("bad\n");
             }*/
-            for(k=0 ; k<thisnode->count ; k++)
+            for(k=0;k<thisnode->count;k++)
             {
                 thispath = thisnode->all_gene_paths[k];
-#if 1
- // rpf this must be wrong
+                // (thispath+k)->randhits++;
                 ++thispath->randhits;
-#else
-// should be this ?
-                (thispath+k)->randhits++;
-#endif
+
                 // printf("%s %d %d %d %d %d %d\n",thispath->acc, thispath->randhits, thisnode->count, thisnode->val, j,k, randgenesindex[j]);
                 // if(!strcmp(thispath->acc, "GO:0034612") && i == 14) printf("%d\n", thisnode->val);
             }
@@ -1760,112 +1912,49 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
                 //printf("%11.2e %d %d %d\n", uptr->pval, uptr->hitcnt, uptr->randhits, uptr->countover);
             else if (uptr->d == uptr->randhits) ++uptr->countequal;
             else ++uptr->countunder;
-                // quasi fdr; do for fewer permutes
-            if (0) // if (i < NUM_QVAL_PERMUTES)
-            {
-                rand_d = uptr->randhits;
-                var_d = rand_d - uptr->d;
-                rand_c = uptr->c - var_d;
-                rand_b = uptr->b - var_d;
-                a = uptr->a;
-                if (rand_b*rand_c == 0) randOR = 99;
-                else randOR = a*rand_d/(rand_b*rand_c);
-                if (randOR < 1)
-                {
-                    uptr->randhits = 0;
-                    continue;
-                }
-                //orscore = (randOR - .9)*uptr->numfixedgenes;
-                if (var_d > 0) ++d_up;
-                else if(var_d < 0) ++d_down;
-                else ++d_equal;
-                pv = exact22(a,rand_b,rand_c,rand_d);
-                //fprintf(predict_fp, "%11.2e \t %11.2e \n", orscore, pv);
-
-                if (pv < SIG_P)
-                {
-                    ++sig_rand_p_ct;
-                    //printf("\n\n %s %d %d %d %d %d %11.2e \n",uptr->name, a, rand_b, rand_c, rand_d, i, pv);
-                    for (K=0; K<n_sig_paths; K++)
-                    {
-                        if(sig_path_ptr[K]->pval >= pv) ++sig_path_ptr[K]->rand_paths_more_sig;
-#if 0
-                        uptrx = sig_path_ptr[K];
-                    unsigned int l;
-                        if(!strcmp(sig_path_ptr[K]->name, "basal lamina") && pv < 3.7e-6)
-                        {
-                            printf("%d\t%d\t%11.2e\t%d\t%d\t%d\t%d\t%d\t%d\t%11.9f\t%11.9f\t%11.7f\t%s\t%s",
-                                        i, sig_path_ptr[K]->rand_paths_more_sig, pv, uptr->a, uptr->b, uptr->c, uptr->d, uptr->randhits,
-                                       uptr->numfixedgenes,
-                                        uptr->pval,  uptr->p_permute_over, uptr->p_permute_under,uptr->acc, uptr->name);
-                            //for (l=0;l<uptr->numfixedgenes; l++) printf("%d\n", uptr->egids[l]);
-                            printf("\n");
-                        }
-#endif
-                                       
-                        
-
-#if 0
-gn rpf not used
-                        uptrx = sig_path_ptr[K];
-#endif
-                        //if(!strcmp(sig_path_ptr[K]->name, "basal lamina"))
-                        {
-                            //printf("%s %11.2e %d\n", (&sig_path_ptr[K])->name, (&sig_path_ptr[K])->pval,(&sig_path_ptr[K])->rand_paths_more_sig);
-                        }
-                    }
-                    //printf("%d %f11.3 %s %d\n", i, pv, (&sig_path_ptr[K])->name, (&sig_path_ptr[K])->rand_paths_more_sig);
-                }/**/
-            }
+            // quasi fdr; do for fewer permutes
             //printf("n, nsig %d %d\n", i, sig_rand_p_ct);
             uptr->randhits = 0;
         }
     }
-//fprintf(stderr,"in GPCC 4 predict_fp=%p\n",predict_fp); fflush(NULL);
-    if (predict_fp) { fclose(predict_fp); predict_fp = (FILE *)0; }
+#endif
 
 //fprintf(stderr,"in GPCC 4.0.1\n"); fflush(NULL);
     for (I=0 ; I<num_used_paths ; I++)
     {
-//fprintf(stderr,"in GPCC 4.1 %d to %d\n",I,num_used_paths); fflush(NULL);
         uptr = (usedpaths+I);
-        uptr->p_permute_over  = (uptr->countover  + 0.5*uptr->countequal + 0.5)/(float) NUM_PERMUTES; // low p value if few random hits > real hits
-        uptr->p_permute_under = (uptr->countunder + 0.5*uptr->countequal + 0.5)/(float) NUM_PERMUTES; // casts don't seem to be needed; shouldn't be for large ints
+        // trying without 0.5 x countequal
+        uptr->p_permute_over  = (uptr->countover  + uptr->countequal + 0.5)/(float) NUM_PERMUTES; // low p value if few random hits > real hits
+        uptr->p_permute_under = (uptr->countunder + uptr->countequal + 0.5)/(float) NUM_PERMUTES; // casts don't seem to be needed; shouldn't be for large ints
     }
-//fprintf(stderr,"in GPCC 5\n"); fflush(NULL);
-    for (K=0; K<n_sig_paths; K++)
-    {
-        sig_path_ptr[K]->pval3  = ((double) sig_path_ptr[K]->rand_paths_more_sig)/((double) NUM_QVAL_PERMUTES);
-        //if (sig_path_ptr[K]->pval3 > 0) printf("%s, %d, %11.2e, %11.2e\n", sig_path_ptr[K]->name, sig_path_ptr[K]->rand_paths_more_sig, sig_path_ptr[K]->pval, sig_path_ptr[K]->pval3);
-    }
-//fprintf(stderr,"in GPCC 7\n"); fflush(NULL);
+//fprintf(stderr,"in GPCC 999\n"); fflush(NULL);
 
 #if 0
-    for (K=0; K<num_used_paths; K++) // DOES THIS DO ANYTHING?
+  // rpf commented out because it does not do anything 
+    unsigned int K;
+    for (K=0; K<num_used_paths; K++) // need calcs combining path values calcd above, besides permutation calcs, no, ok to output scalar mean_deg_gpcount
     {
         uptr = (usedpaths+K);
-        // if(uptr->pval3 > 0 | uptr->pval < 0.001)  printf("%s\t %d\t %11.2e\t %11.2e\n", uptr->name, uptr->rand_paths_more_sig, uptr->pval, uptr->pval3);
-        //if ((uptr->pval3 >= 0) || (uptr->pval < 0.001))  printf("%s\t %d\t %11.2e\t %11.2e\n", uptr->name, uptr->rand_paths_more_sig, uptr->pval, uptr->pval3);
     }
 #endif
 #ifdef L2P_USING_R
-    // PutRNGstate(); // restore random state
+    //PutRNGstate(); // restore random state
 #endif
-
-    if (randgenesindex) free(randgenesindex); 
-    if (head)  free_tree_with_count(head);
-    if (pool)     free(pool);
-    if (pspace)   free(pspace);
-    if (index_ptr) free(index_ptr);
-    if (aug_ptr) free(aug_ptr);
+    if (randgenesindex)   free(randgenesindex);
+    if (head)             free_tree_with_count(head);
+    if (pool)             free(pool);
+    if (pspace)           free(pspace);
+    if (index_ptr)        free(index_ptr);
+    if (aug_ptr)          free(aug_ptr);
     if (aug_treepointers) free (aug_treepointers);
-    if (treepointers) free(treepointers);
-    if (gene_path_cts) free(gene_path_cts);
-    if (auguniverse) free(auguniverse);
-    if (augreverse) free(augreverse);
-    if (sig_path_ptr) free(sig_path_ptr);
-    if (deg_path_cts) free (deg_path_cts);
-// fprintf(stderr,"end GPCC\n"); fflush(NULL);
+    if (treepointers)     free(treepointers);
+    if (gene_path_cts)    free(gene_path_cts);
+    if (auguniverse)      free(auguniverse);
+    if (augreverse)       free(augreverse);
+    if (sig_path_ptr)     free(sig_path_ptr);
+    if (deg_path_cts)     free (deg_path_cts);
+fprintf(stderr,"rpf dbug end GPCC\n"); fflush(NULL);
+
     return(0);
 }
 
@@ -2056,27 +2145,29 @@ int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigne
 int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt,unsigned int *real_universe, int permute_flag, int *user_incnt_ptr, int oneside,unsigned int seed)
 {
     char s[512];
-    struct used_path_type *uptr; // used path pointer 
     unsigned int prev;
     unsigned int ui;
-    unsigned int ui_ej;
     unsigned int user_incnt = 0;
-    unsigned int i,j,k,ll;
+    unsigned int i,j;
     int ret = 0;
     int overflowflag = 0;
     unsigned int *uiptr = (void *)0;
 // struct timespec time1, time2;
     // char *z;
+    struct used_path_type *uptr; // used path pointer 
+    unsigned int ui_ej;
+    unsigned int k,ll;
 
     *user_incnt_ptr = j = 0;
     // ADDING INPUT FILE FOR C RUN, INPUT GENE LIST
     // struct timespec time1, time2;
     // char *z;
     // printf("input DEG list\n");
-#if NELSON_C
-    FILE *deglist;
+#if 0
+ // # if NELSON_TEST
+    FILE *deglist = (FILE *)0;
     if ((deglist = fopen (DEGLISTNAME, "r")) == NULL){
-        printf ("can't open deglist, exiting");
+        printf ("ERROR: Can not open deglist file named \"%s\" exiting",DEGLISTNAME);
         exit (1);
     }
     // READING FROM DEGLIST
@@ -2112,10 +2203,17 @@ int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigne
             overflowflag = 1;
         }
     }
+#if 0
+    if (deglist) { fclose(deglist); deglist = (FILE *)0; }
+#endif
+#if RADIX
+    radix_ui(tmpgenes,j);
+#else
     qsort(tmpgenes,j,sizeof(unsigned int),cmp_ui); // sort user input egids (entrez gene ids)
+#endif
     prev = 0;
     for (i=user_incnt=0;i<j;i++)
-    {
+    {                    // de-duplicate 
         ui = tmpgenes[i];
         if (ui != prev)
         {
@@ -2124,28 +2222,8 @@ int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigne
         prev = ui;
     }
     ingenecnt = user_incnt;
+
 // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time1);
-    for (i=0 ; i<num_used_paths ; i++)
-    {
-        uptr = (usedpaths+i);
-        if (!uptr->egids) continue;
-        j = k = ll = 0;
-        while ((j<uptr->numfixedgenes) && (k < user_incnt))
-        {
-            ui_ej = *(uptr->egids+j);
-            ui = ingenes[k];
-            if (ui_ej == ui)
-            {
-                *((uptr->genehits) + (ll++)) = ui; // remember, because need to print out later
-                k++;
-                j++;
-                continue;
-            }
-            else if (ui_ej < ui) j++;
-            else                 k++;
-        }
-        uptr->hitcnt = ll;
-    }
 #if 0
 clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &time2);
 #define BILLION  1000000000.0;
@@ -2159,7 +2237,31 @@ fflush(NULL);
     *user_incnt_ptr = user_incnt;
     if (permute_flag == 0)
     {
-           do_pvals_and_bh(user_incnt, usedpaths,num_used_paths, real_universe_cnt,oneside);
+fprintf(stderr,"rpf num_used_paths=%d\n",num_used_paths); 
+        for (i=0 ; i<num_used_paths ; i++)
+        {
+            uptr = (usedpaths+i);
+            if (!uptr->egids) continue;
+            j = k = ll = 0;
+            while ((j<uptr->numfixedgenes) && (k < user_incnt))
+            {
+                ui_ej = *(uptr->egids+j);
+                ui = ingenes[k];
+                if (ui_ej == ui)
+                {
+                    *((uptr->genehits) + (ll++)) = ui; // remember, because need to print out later
+                    k++;
+                    j++;
+                    // aug hit count for aug contingency table
+                    continue;
+                }
+                else if (ui_ej < ui) j++;
+                else                 k++;
+            }
+            uptr->hitcnt = ll;
+        }
+/// xxxx where is lp2func ?
+        do_pvals_and_bh(user_incnt, usedpaths,num_used_paths, real_universe_cnt,oneside);
     }
     else
     {
@@ -2167,12 +2269,14 @@ fflush(NULL);
         GPCC(usedpaths,num_used_paths,real_universe_cnt, real_universe);
 #endif
         //GPCC(user_incnt,usedpaths,num_used_paths,real_universe_cnt,seed);
-// fprintf(stderr,"in lp2func(), before GPCC\n"); fflush(NULL); 
+fprintf(stderr,"in lp2func(), before GPCC\n"); fflush(NULL);
         GPCC(usedpaths,num_used_paths,real_universe_cnt, real_universe, seed);
-// fprintf(stderr,"in lp2func(), after  GPCC\n"); fflush(NULL); 
+fprintf(stderr,"in lp2func(), after  GPCC\n"); fflush(NULL);
 
     // RICH: this code does all comparisons out of GPCC
-    //do_just_bh(user_incnt,usedpaths,num_used_paths,real_universe_cnt);
+// rpf xxx fix
+        do_just_bh(user_incnt,usedpaths,num_used_paths,real_universe_cnt);
+// rpf xxx fix
     }
     return ret;
 }
@@ -2181,7 +2285,7 @@ fflush(NULL);
 
 
 #ifdef WEBASSEMBLY
-int testwasm(void)
+int wasmtest(void)
 {
 int i;
 // need to bring some symbols for functions to test out wasm compilation
@@ -2189,6 +2293,18 @@ for (i=0;i<10;i++) printf("%s",genes[i].hugo); // wasm
 for (i=0;i<10;i++) printf("%s",pws[i].name); // wasm 
 for (i=0;i<10;i++) printf("%d",pwgenes[i]); // wasm 
 return 0;
+}
+int wasmfunc(void)
+{
+fprintf(stderr,"in wasmfunc");
+return 0;
+}
+int main(int argc,char *argv[])
+{
+/*
+    EM_ASM( allReady() );
+*/
+    return 0;
 }
 #else
 void usage(void)
@@ -2321,9 +2437,9 @@ int l2p_init_C(int argc,char *argv[],unsigned int *catspatptr,int *precise_flag,
             parsecats(z,catspatptr);
         }
         else if (strcmp(argv[i],"-precise") == 0)
-              *precise_flag = 1; // print more digits out some user doesn't complain about "real pvals"
+              *precise_flag = 1; // print more digits out so user doesn't complain about "real pvals"
         else if (strcmp(argv[i],"-permute") == 0)
-              *permute_flag = 1; // print more digits out some user doesn't complain about "real pvals"
+              *permute_flag = 1; // print more digits out so user doesn't complain about "real pvals"
         else if (strcmp(argv[i],"-noheader") == 0)
               *no_header_flag = 1;
         else if (strcmp(argv[i],"-justheader") == 0)
@@ -2436,7 +2552,11 @@ exit(0);
             }
         }
     }
+#if RADIX
+    radix_ui(tempverse,k);
+#else
     qsort(tempverse,k,sizeof(unsigned int),cmp_ui);
+#endif
     real_universe = (unsigned int *)malloc(sz);
     prev = 0;
     for (i=j=0;i<k;i++)
@@ -2624,7 +2744,11 @@ struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned i
         }
         uptr = (u+used_index);
 
+#if RADIX
+        radix_ui(this_egids,newcnt);
+#else
         qsort(this_egids,newcnt,sizeof(unsigned int),cmp_ui);
+#endif
         uptr->egids = this_egids;
         uptr->numfixedgenes = newcnt;
         uptr->genehits = (unsigned int *)malloc(sizeof(unsigned int)*newcnt);
@@ -2644,91 +2768,94 @@ struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned i
         if (tmpugenes) { free(tmpugenes); tmpugenes = (unsigned int *)0; }
         tmpugenes=malloc(sizeof(unsigned int)*MAXUGENES);
         if (!tmpugenes) { fprintf(stderr,"can't malloc %u bytes \n",(unsigned int)(sizeof(unsigned int)*MAXUGENES));  fflush(stderr); }
-    fp = fopen(custom_file,"r");
-    if (!fp) { fprintf(stderr,"NOTE: can not open \"%s\" - ignoring\n",custom_file); fflush(stderr); }
-    while ( fgets(s, sizeof(s)-2, fp) ) // for each line of custom file
-    {
-        for (k=0 ; s[k] ; k++) { if ((s[k] == '\n')||(s[k] == '\r')) s[k] = (char)0; } // strip newline
-        uptr = (u+used_index); // used_index points to next available slot 
-        z = &s[0];
-        j = tokcnt = k = 0;
-        tmps[0] = (char)0;
-        keepgoing = 1;
-        newcnt = 0;
-        while (keepgoing == 1)
+        fp = fopen(custom_file,"r");
+        if (!fp) { fprintf(stderr,"NOTE: can not open \"%s\" - ignoring\n",custom_file); fflush(stderr); }
+        else
         {
-            if ( (*(z+j) == '\t') || (*(z+j) == (char)0) )
-            {   // first token is name, 2nd is optional and rest are gene names separated by tabs
-               if (tokcnt == 0) strcpy(custname,tmps); 
-               else if (tokcnt == 1) { /* ignore */ } 
-               else
-               {
-                   if (tmps[0])
-                   {
-                       ui = hugo2egid(tmps);
-                       if (ui == (unsigned int)UINT_MAX)
-                       {
-                           fprintf(stderr,"Note: invalid gene \"%s\" in custom pathway file.\n",tmps);  
-                       }
+            while ( fgets(s, sizeof(s)-2, fp) ) // for each line of custom file
+            {
+                for (k=0 ; s[k] ; k++) { if ((s[k] == '\n')||(s[k] == '\r')) s[k] = (char)0; } // strip newline
+                uptr = (u+used_index); // used_index points to next available slot 
+                z = &s[0];
+                j = tokcnt = k = 0;
+                tmps[0] = (char)0;
+                keepgoing = 1;
+                newcnt = 0;
+                while (keepgoing == 1)
+                {
+                    if ( (*(z+j) == '\t') || (*(z+j) == (char)0) )
+                    {   // first token is name, 2nd is optional and rest are gene names separated by tabs
+                       if (tokcnt == 0) strcpy(custname,tmps); 
+                       else if (tokcnt == 1) { /* ignore */ } 
                        else
                        {
-                           if (universe_cnt) // must be in user universe
+                           if (tmps[0])
                            {
-                               uiptr = (unsigned int *)bsearch(&ui,user_universe_genes,universe_cnt,sizeof(unsigned int),cmp_ui);
-                               if (uiptr)
+                               ui = hugo2egid(tmps);
+                               if (ui == (unsigned int)UINT_MAX)
                                {
-                                   *(tmpugenes+newcnt) = ui; // put this in the right place
-                                   newcnt++;
-                                   if (newcnt == MAXUGENES) { fprintf(stderr,"ERROR: too many genes on custom pathway gmt file.\n"); fflush(stderr); }
+                                   fprintf(stderr,"Note: invalid gene \"%s\" in custom pathway file.\n",tmps);  
+                               }
+                               else
+                               {
+                                   if (universe_cnt) // must be in user universe
+                                   {
+                                       uiptr = (unsigned int *)bsearch(&ui,user_universe_genes,universe_cnt,sizeof(unsigned int),cmp_ui);
+                                       if (uiptr)
+                                       {
+                                           *(tmpugenes+newcnt) = ui; // put this in the right place
+                                           newcnt++;
+                                           if (newcnt == MAXUGENES) { fprintf(stderr,"ERROR: too many genes on custom pathway gmt file.\n"); fflush(stderr); }
+                                       }
+                                   }
+                                   else 
+                                   {
+                                       *(tmpugenes+newcnt) = ui; // put this in the right place
+                                       newcnt++;
+                                   }
                                }
                            }
-                           else 
-                           {
-                               *(tmpugenes+newcnt) = ui; // put this in the right place
-                               newcnt++;
-                           }
                        }
-                   }
-               }
-               tokcnt++;
-               k = 0;
-               tmps[0] = (char)0;
-               if (*(z+j) == (char)0) keepgoing = 0;
+                       tokcnt++;
+                       k = 0;
+                       tmps[0] = (char)0;
+                       if (*(z+j) == (char)0) keepgoing = 0;
+                    }
+                    else
+                    {
+                        tmps[k++] = *(z+j); 
+                        tmps[k] = (char)0;
+                    }
+                    j++;
+                }
+                if (newcnt == 0) continue;
+                qsort(tmpugenes,newcnt,sizeof(unsigned int),cmp_ui);
+                this_cust_pw_cnt = 0;
+                prev = 0;
+                this_egids = (unsigned int *)malloc(sizeof(unsigned int)*newcnt);
+                for (k=0;k<newcnt;k++) // de-duplicate, put only UNIQUE genes in
+                {
+                    ui = *(tmpugenes+k); 
+                    if (ui != prev)
+                    {
+                        *(this_egids+this_cust_pw_cnt) = ui;
+                        this_cust_pw_cnt++;
+                    }
+                    prev = ui;
+                }
+                uptr->acc = strdup(custname); // remember to free this
+                uptr->name =strdup(custname);  // remember to free this
+                uptr->egids = this_egids; // remember to free this
+                uptr->numgenes = uptr->numfixedgenes = this_cust_pw_cnt;
+                uptr->pwgenesindex = USHRT_MAX;
+                uptr->genehits = (unsigned int *)malloc(sizeof(unsigned int)*this_cust_pw_cnt); // remember to free this
+                uptr->hitcnt = 0;
+                uptr->category = CAT_CUSTOM | (string2type("custsom") << 28);
+                used_index++;
             }
-            else
-            {
-                tmps[k++] = *(z+j); 
-                tmps[k] = (char)0;
-            }
-            j++;
         }
-        if (newcnt == 0) continue;
-        qsort(tmpugenes,newcnt,sizeof(unsigned int),cmp_ui);
-        this_cust_pw_cnt = 0;
-        prev = 0;
-        this_egids = (unsigned int *)malloc(sizeof(unsigned int)*newcnt);
-        for (k=0;k<newcnt;k++) // de-duplicate, put only UNIQUE genes in
-        {
-            ui = *(tmpugenes+k); 
-            if (ui != prev)
-            {
-                *(this_egids+this_cust_pw_cnt) = ui;
-                this_cust_pw_cnt++;
-            }
-            prev = ui;
-        }
-        uptr->acc = strdup(custname); // remember to free this
-        uptr->name =strdup(custname);  // remember to free this
-        uptr->egids = this_egids; // remember to free this
-        uptr->numgenes = uptr->numfixedgenes = this_cust_pw_cnt;
-        uptr->pwgenesindex = USHRT_MAX;
-        uptr->genehits = (unsigned int *)malloc(sizeof(unsigned int)*this_cust_pw_cnt); // remember to free this
-        uptr->hitcnt = 0;
-        uptr->category = CAT_CUSTOM | (string2type("custsom") << 28);
-        used_index++;
-    }
-    if (tmpugenes) { free(tmpugenes); tmpugenes = (unsigned int *)0; }
-    }
+        if (tmpugenes) { free(tmpugenes); tmpugenes = (unsigned int *)0; }
+    } // if custom cnt
 
     for (i=0;i<lencust;i++) // add R user custom lists passed as a list of vectors (with "gmt" lines)
     {
@@ -2766,6 +2893,7 @@ fprintf(stderr,"Time elapsed is %f seconds\n", time_spent);
 
 void print_permute_header(void)
 {
+fprintf(stderr,"in print_permute_header()\n"); fflush(NULL); 
     printf("a\t"); // uptr->a 
     printf("c\t"); // uptr->c 
     printf("b\t"); // uptr->b 
@@ -2783,7 +2911,11 @@ void print_permute_header(void)
     printf("tmps\t"); // tmps 
     printf("name"); // uptr->name); 
     printf("\n");
+    fflush(stdout);
+fprintf(stderr,"end print_permute_header()\n"); fflush(NULL); 
+    return;
 } 
+
 
 int main(int argc,char *argv[])
 {
@@ -2809,7 +2941,10 @@ int main(int argc,char *argv[])
     char *z;
     double fdr_for_output;
 #if NELSON_C
-    FILE *pathcalls;
+//    double corr_tst;
+    double mean_gpct;
+    FILE *pathcalls = (FILE *)0;
+    FILE *pathcalls_tech = (FILE *)0;
 #endif
 
 
@@ -2825,17 +2960,24 @@ int main(int argc,char *argv[])
     status = l2pfunc(u,num_used_paths,real_universe_cnt,real_universe,permute_flag,&user_incnt,oneside);
 #endif
     status = l2pfunc(u,num_used_paths,real_universe_cnt,real_universe,permute_flag,&user_incnt,oneside,seed);
+fprintf(stderr,"in main(), after  l2pfunc\n"); fflush(NULL);
 
-#if NELSON_C
+#if NELSON_TEST
     pathcalls = fopen(OUTPUTFILE, "w");
-#endif
+    pathcalls_tech = fopen(TECHOUTPUTFILE, "w");
 
+    fprintf(pathcalls, "GPCC_pval\tGPCC_fdr\tFET_pval\tFET_fdr\tGPCC_OR\tFET_OR\n");
+    fprintf(pathcalls_tech, "a\tb\tc\td\ta\tb\tc\td\tcountunder\tcountequal\tcountover\tpwgenect\tpw_gpct\tOR\tgpcc_OR\tFET_p\tpermute_p\tmean_gpct\tmean_deg_gpct\tmean_u_gpcts\tgp_corr_p\tacc\tname\n");
+#endif
 
     if (permute_flag)
     {
+fprintf(stderr,"rpf here 1 no_header_flag=%d\n",no_header_flag); fflush(NULL); 
         if (no_header_flag == 0) print_permute_header();
+fprintf(stderr,"rpf here 2 num_used_paths=%d\n",num_used_paths); fflush(NULL); 
         for (i=0 ; i<num_used_paths ; i++)
         {
+// fprintf(stderr,"rpf here 3 %d\n",i); fflush(NULL); 
             uptr = (u+i);
             categories_pattern_to_strings(uptr->category,tmps);
             fdr_for_output = uptr->fdr;
@@ -2844,13 +2986,19 @@ int main(int argc,char *argv[])
                           uptr->countunder, uptr->countequal, uptr->countover, uptr->numfixedgenes, uptr->OR,
                           uptr->pval,  uptr->p_permute_over, uptr->p_permute_under, uptr->pval3,
                           uptr->acc, tmps, uptr->name);
-/*
-                fprintf(pathcalls, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%11.2f\t%11.2e\t%11.2e\t%11.2e\t%11.2e\t%s\t%s\t%s\t\n",
-                 uptr->a, uptr->c, uptr->b, uptr->d,
-                uptr->countunder, uptr->countequal, uptr->countover, uptr->numfixedgenes, uptr->OR,
-                  uptr->pval,  uptr->p_permute_over, uptr->p_permute_under, uptr->pval3,
-                uptr->acc, tmps, uptr->name);
-*/
+#if NELSON_TEST
+            mean_gpct = (float) uptr->pathhits_gpsum/(float) uptr->hitcnt;
+            categories_pattern_to_strings(uptr->category,tmps);
+            fprintf(pathcalls, "%11.2e\t%11.2e\t%11.2e\t%11.2e\t%11.2f\t%11.2f\n",
+                    uptr->gpcc_p, uptr->gpcc_fdr, uptr->pval, uptr->fdr, uptr->gpcc_OR, uptr->OR); // i, randhits diagnostic
+
+            fprintf(pathcalls_tech, "%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%11.2f\t%11.2f\t%11.2e\t%11.2e\t%11.2f\t%11.2f\t%11.2f\t%11.2e\t%s\t%s\n",
+                    uptr->a, uptr->b, uptr->c, uptr->d,
+                    uptr->A_scaled, uptr->B_scaled, uptr->C_scaled, uptr->D_scaled,
+                    uptr->countunder, uptr->countequal, uptr->countover, uptr->numfixedgenes, uptr->pathcountsum,
+                    uptr->OR, uptr->gpcc_OR, uptr->pval, uptr->p_permute_over, mean_gpct,  mean_deg_gpcount, mean_u_gpcount,
+                    uptr->gpcc_p, uptr->acc,  uptr->name);
+#endif
 // fprintf(stderr,"hitcnt = %d\n",uptr->hitcnt); 
             for (j=0 ; j<uptr->hitcnt ; j++)
             {
@@ -2878,9 +3026,8 @@ int main(int argc,char *argv[])
            }
            else
            {
-               printf("%11.9f\t%11.9f\t%11.9f\t%11.7f\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t",
+               printf("%11.9f\t%11.9f\t%11.7f\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t",
                    uptr->pval,     
-                   uptr->pval2,     
                    fdr_for_output, uptr->enrichment_score,
                    uptr->a, uptr->b, uptr->c, uptr->d,
                    uptr->acc, tmps,
@@ -2906,6 +3053,7 @@ int main(int argc,char *argv[])
             printf("\n");
         }
     }
+fprintf(stderr,"rpf here 4 no_header_flag=%d\n",no_header_flag); fflush(NULL); 
     
     fflush(NULL); 
 
@@ -2923,6 +3071,22 @@ int main(int argc,char *argv[])
     }
     if (by_egids) free(by_egids);
     if (real_universe) free(real_universe);
+
+
+#if NELSON_C
+    if (pathcalls) fclose(pathcalls);
+    if (pathcalls_tech) fclose(pathcalls_tech);
+#endif
+
+fprintf(stderr,"rpf near end of main()\n"); fflush(NULL);
+
+#if 0
+       // next three lines are for valgrind
+    fclose(stdin);
+    fclose(stdout);
+    fclose(stderr);
+#endif
+
     return status;
 }
 #endif
@@ -3001,6 +3165,59 @@ Table referenced from attached email:
 Significant Genes Non-Significant Genes
 IN Pathway A B
 NOT IN Pathway C D
+1 Pathway_name            Name of pathway
+
+2 Enrichment_score      ((number_hits /(number_hits+number_misses)) - (number_user_genes/(number_user_genes+total_gens_minus_input))) * 100" <- tie-breaker #2
+
+3 GPCC_pval                 Gpcc (gene pathway count correction) pval <- sort on this first (#1)
+
+4 GPCC_FDR                      False discovery rate: benjamini hochberg (of GPCC p-value) <- this is what we recommend users use
+
+5 FET_pval                         Fisher's exact p-value (legacy)
+
+6 FET_FDR                  False discovery rate (FET)
+
+7 Number_hits                 Number of genes hit in pathway
+
+8 Number_genes_in_pathway        Number of genes in the pathway (size of pathway)*
+
+9 Percent_hits                   Number_hits/total genes in pathway* <- tie-breaker #3
+
+10 Pathway_id                 Canonical accession ( if available, otherwise assigned by us )
+
+11 Category                     KEGG,REACTOME,GO,PANT(=PANTHER),PID=(pathway interaction database)  *was "source"*
+
+12 Pathway_type            Functional_set,pathway,structural_complex,custom
+
+13 Genes_in_pathway        HUGO genes from user that hit the pathway
+VERSION 8 L2P:
+
+ 
+
+Columns that will be output with L2P:
+
+1 Pathway_name          Name of pathway
+2 Enrichment_score      ((number_hits /(number_hits+number_misses)) - (number_user_genes/(number_user_genes+total_gens_minus_input))) * 100" <- tie-breaker #2
+3 GPCC_pval             Gpcc (gene pathway count correction) pval <- sort on this first (#1)
+4 GPCC_FDR              False discovery rate: benjamini hochberg (of GPCC p-value) <- this is what we recommend users use
+5 FET_pval              Fisher's exact p-value (legacy)
+6 FET_FDR               False discovery rate (FET)
+7 Number_hits           Number of genes hit in pathway
+8 Number_genes_in_pathway        Number of genes in the pathway (size of pathway)*
+9 Percent_hits          Number_hits/total genes in pathway* <- tie-breaker #3
+10 Pathway_id           Canonical accession ( if available, otherwise assigned by us )
+11 Category             KEGG,REACTOME,GO,PANT(=PANTHER),PID=(pathway interaction database)  *was "source"*
+12 Pathway_type         Functional_set,pathway,structural_complex,custom
+13 Genes_in_pathway     HUGO genes from user that hit the pathway
+
+Optional Columns: This is for Rich to put into a flag where optional columns can be added to the L2P output (Optionalcols = 1, by default Optionalcols = 0)
+
+A – universe – (DEG count + pathway count) 
+B – pathway count – number of hits
+C – total DEG count - number of hits
+D – number of hits
+Odds_ratio              odds ratio
+Sum_of_pathways         Sum of unique pathways where pathway genes are also found
  
 */
 
