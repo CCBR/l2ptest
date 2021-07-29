@@ -411,7 +411,11 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
                     if (ui != UINT_MAX) { *(mycustompwptr->genes + j - 2) = ui; mycustompwptr->numgenes++; } // nb:-2
                 }
             }
+#if RADIX
+            radix_ui(mycustompwptr->genes,mycustompwptr->numgenes);
+#else
             qsort(mycustompwptr->genes,mycustompwptr->numgenes,sizeof(unsigned int),cmp_ui);
+#endif
         }
     }
     if (Rf_isNull(universe)) //   if (universe == (SEXP)0)
@@ -442,7 +446,11 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
         ui = hugo2egid(tmps);
         if (ui != UINT_MAX) { *(user_in_genes_original+k) = ui; k++; }
     }
+#if RADIX
+    radix_ui(user_in_genes_original,k);
+#else
     qsort(user_in_genes_original,k,sizeof(unsigned int),cmp_ui);
+#endif
 
     for (j=i=0;i<k;i++)
     {                // de duplicate list 
@@ -478,7 +486,11 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
             ui = hugo2egid(tmps);
             if (ui != UINT_MAX) { *(in_universe_original+k) = ui; k++; }
         }
+#if RADIX
+        radix_ui( in_universe_original,k);
+#else
         qsort(in_universe_original,k,sizeof(unsigned int),cmp_ui);
+#endif
         for (j=i=0;i<k;i++)
         {  // de duplicate universe 
             if (i > 0) 

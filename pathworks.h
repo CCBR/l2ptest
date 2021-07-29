@@ -3,9 +3,10 @@
 #define   PATHWORKS_H 1
 #endif
 
-// #define MAXBSID 25000
-     // last count: 24376  pathworks.txt
-     //
+#define RADIX 1
+    // #define MAXBSID 25000
+    // last count: 24376  pathworks.txt
+    //
 #define MAXBSIDPOSSIBLE 851568   
      // for pwharvest
 
@@ -153,30 +154,35 @@ struct hit_type
 
 
 // pathway commons
-#define chemical_affects                             1
-#define in_complex_with                              2
-#define catalysis_precedes                           4
-#define controls_expression_of                       8
-#define controls_state_change_of                     16
-#define controls_production_of                       32
-#define consumption_controlled_by                    64
-#define controls_phosphorylation_of                  128
-#define used_to_produce                              256
-#define transport                                    512
-#define reacts_with                                  1024
-#define interacts_with                               2048
-#define reference                                    4096
-#define other                                        8192
+#define chemical_affects                  (1<<0)
+#define in_complex_with                   (1<<1)
+#define catalysis_precedes                (1<<2)
+#define controls_expression_of            (1<<3)
+#define controls_state_change_of          (1<<4)
+#define controls_production_of            (1<<5)
+#define consumption_controlled_by         (1<<6)
+#define controls_phosphorylation_of       (1<<7)
+#define used_to_produce                   (1<<8)
+#define transport                         (1<<9)
+#define reacts_with                       (1<<10)
+#define interacts_with                    (1<<11)
+#define reference                         (1<<12)
+#define multiple                          (1<<13)
+#define other                             (1<<14)
+#define ABdirection	                  (1<<15)
 
 
-#define MAXPC 1915769
+#define MAXPC 2000000
         // latest 1915769 PathwayCommons12.All.hgnc.txt
 
-struct pctype
+struct pctype // pathway commons type
 {
     int ID_Interactor_A;
     int ID_Interactor_B;
-    int interaction_type;
+    char *hugo1;
+    char *hugo2;
+    unsigned short int interaction_type;
+    int is_dupe;
 };
 
 #define MAXBIOGRID 303568
@@ -220,24 +226,33 @@ struct used_path_type
     unsigned int numgenes;
     unsigned int numfixedgenes;
     unsigned int hitcnt;
+    unsigned int aughitcnt;
+    double pathhits_gpsum;
+    unsigned int pathcountsum;
     unsigned int *genehits; // put hits here, reason: need to print them out
     double OR;
+    double gpcc_OR;
     double pval;
     double pval2; // alt
     double pval3; // permute
+    double gpcc_p;
     double fdr;
-    int rand_paths_more_sig;
+    double gpcc_fdr;
     double enrichment_score;                  // ratio
     unsigned int pwgenesindex;
     unsigned int *egids;
     // orginal george int a,b,c,d;  // a=universe-userinput-pwgenes-list b=pw-hits, c=degs-hits , d = number of hits
     unsigned int a,b,c,d;  // a=universe-userinput-pwgenes-list b=pw-hits, c=degs-hits , d = number of hits
+    unsigned int A_scaled,B_scaled,C_scaled,D_scaled;
+// #if NELSON_C
+#if 1
     unsigned int randhits;
     unsigned int countover; // data hits value > permutation p hits
     unsigned int countequal;
     unsigned int countunder; // redundant
     double p_permute_over;
     double p_permute_under; // redundant
+#endif
 };
 
 struct custom_type
@@ -291,3 +306,4 @@ int do_pvals_and_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], u
 unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths, unsigned int real_universe_cnt, unsigned int *real_universe, int seed);
 int do_just_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], unsigned int num_used_paths,unsigned int real_universe_cnt);
 // void malloc_pathpointers(struct tree_with_count *node); // counts aligned with universe (real_universe)
+void radix_ui(register unsigned int vector[], register const unsigned int size) ;
