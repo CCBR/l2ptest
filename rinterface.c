@@ -15,11 +15,12 @@
 #include <unistd.h>
 
 #include "pathworks.h"
-#ifdef WEBASSEMBLY
+
+#if 0
 #include "small.h"
-#else
-#include "big.h"
 #endif
+
+#include "big.h"
 
 #define RDEBUG 0
 

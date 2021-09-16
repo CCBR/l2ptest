@@ -54,10 +54,11 @@
                                            // count = 144 
 #define CAT_MSIG_C7            (1<<13)  
                                            // count = 1888 
-#define CAT_MSIG_H             (1<<14)  
-                                           // count = 50 
 #define CAT_MSIG_C8            (1<<14)  
+#define CAT_MSIG_H             (1<<15)  
+                                           // count = 50 
 #define CAT_CUSTOM             (1<<16)     
+
 #if 0
 #define CAT_MSIG_ARCHIVED      (1<<15)  
                                            // count = 858 
@@ -253,6 +254,8 @@ struct used_path_type
     double p_permute_over;
     double p_permute_under; // redundant
 #endif
+    double pval4;
+    double fdr4;
 };
 
 struct custom_type
@@ -307,3 +310,5 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
 int do_just_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], unsigned int num_used_paths,unsigned int real_universe_cnt);
 // void malloc_pathpointers(struct tree_with_count *node); // counts aligned with universe (real_universe)
 void radix_ui(register unsigned int vector[], register const unsigned int size) ;
+int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt,unsigned int *real_universe, int permute_flag, int *user_incnt_ptr, int oneside,unsigned int seed);
+
