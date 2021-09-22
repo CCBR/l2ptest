@@ -13,6 +13,8 @@
 #define MAXGENE 70000
      // last count 61141 pathworksgenes.txt 
 
+#define MAX_INGENES 40000
+
   // types
 #define type_functional_set 1
 #define type_pathway 2
@@ -87,7 +89,6 @@ struct binpathouttype     // the "binary" pathway information file
         // ***** NOTE: Different C compilers produce different sized records for this structure (binpathouttype).
         // ***** The output file for this will only contain the important to save fields
         // ***** we only need to writeout the above 10 fields. So output record size is 10*4=40 bytes.
-
 #if 0
 //  hits is a ptr to an array with 
 //    firstelemen=[0]=numhits, then the rest of the array is [1...n] ptrs to struct of generecs (bingentype? right?)
@@ -117,7 +118,7 @@ struct genelisttype // used by harvest programs
 struct bstype // biosystems id and info - input into this array  -- used by harvest programs 
 {
     int bsid;
-    int  category; // use CAT_ bitpattern defines (above) 
+    int category; // use CAT_ bitpattern defines (above) 
     char *accession;
     char *name;
     char *type;

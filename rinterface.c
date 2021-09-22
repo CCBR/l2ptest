@@ -1,4 +1,8 @@
 
+/*
+R interface
+*/
+
 #ifdef L2P_USING_R
 #include <R.h>
 #include <Rdefines.h>
@@ -31,6 +35,8 @@ extern int numpws;
 extern int numgenes;
 extern int numpwgenes;
 extern struct smallgenetype *by_egids;  // a copy of "genes" ,but sorted by egid (entrez gene id )
+extern unsigned int ingenes[MAX_INGENES];
+extern unsigned int ingenecnt;
 
 void category_code_to_string(unsigned int cat,char puthere[])
 {
@@ -199,8 +205,8 @@ void int2bin(int n, char s[])
     unsigned int mask = 1 << (nbits-1); // fill in values right-to-left
     for (i = 0; i < nbits; i++, mask >>= 1)
     {
-            s[i] = ((u & mask) != 0) + '0';
-            s[i+1] =  (char)0;
+        s[i] = ((u & mask) != 0) + '0';
+        s[i+1] =  (char)0;
     }
     return;
 }
@@ -258,7 +264,7 @@ static int parsecats(char *z, unsigned int *catspat)
 }
 
 
-int l2pfunc_R(unsigned int *user_in_genes, unsigned int user_incnt, struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt, unsigned int *real_universe,int permute_flag,int seed)
+int l2pfunc_R(unsigned int *user_in_genes, unsigned int user_incnt, struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt, unsigned int *real_universe,int permute_flag,int seed, int gpcc_flag)
 {
     struct used_path_type *uptr; // used path pointer 
     unsigned int ui_uk;
@@ -267,9 +273,12 @@ int l2pfunc_R(unsigned int *user_in_genes, unsigned int user_incnt, struct used_
     unsigned int j,k,ll;
     int ret = 0;
 
+   // this shuts up "unused" compiler warning
 #define UNUSED(x) (void)(x)
 UNUSED(seed);
+UNUSED(permute_flag);
     
+// fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
     for (i=0 ; i<num_used_paths ; i++)
     {
         uptr = (usedpaths+i);
@@ -291,16 +300,22 @@ UNUSED(seed);
         }
         uptr->hitcnt = ll;
     }
-    if (permute_flag)
+    if (gpcc_flag == 1)
     {
+// fprintf(stderr,"gpccdbg before GPCC **** \n"); fflush(stderr); 
+        for (i=0;i<user_incnt;i++)
+            ingenes[i] = *(user_in_genes+i);
+        ingenecnt = user_incnt;
         GPCC(usedpaths,num_used_paths,real_universe_cnt,real_universe,seed);
+// fprintf(stderr,"gpccdbg after GPCC\n"); fflush(stderr); 
 // unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths, unsigned int real_universe_cnt, unsigned int *real_universe, unsigned int seed);
     }
     return ret;
 }
 
 
-SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn, SEXP universefn, SEXP permuteval, SEXP oneside_arg)
+SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn, SEXP universefn, SEXP permute_arg, SEXP oneside_arg, SEXP gpcc_arg, 
+    SEXP legacy_arg, SEXP extra_arg)
 {
     char tmps_cat[PATH_MAX];  // temp string for "category" 
     char tmps[512];
@@ -316,7 +331,10 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     unsigned int in_universe_cnt = 0;
     unsigned int *real_universe = (unsigned int *)0;
     unsigned int real_universe_cnt = 0;
+    int extra_flag = 0;
+    int legacy_flag = 0;
     int permute_flag = 0;
+    int gpcc_flag = 0;
     int user_universe_flag = 0;
     int user_incnt = 0;
     int oneside = 0;
@@ -338,6 +356,10 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     SEXP list = (SEXP)0;
     SEXP pval = (SEXP)0;     // 1 
     SEXP fdr = (SEXP)0;      // 2
+    SEXP GPCC_pval = (SEXP)0; 
+    SEXP GPCC_FDR = (SEXP)0; 
+    SEXP number_genes_in_pathway = (SEXP)0; 
+    SEXP percent_hits = (SEXP)0; 
     SEXP enrichment_score = (SEXP)0;  // 3 if positive, genes are OVER REPRESENTED, if negative genes are UNDER REPRESENTED
     SEXP percent_gene_hits_per_pathway = (SEXP)0;  // 4
     SEXP number_hits = (SEXP)0;       // 5 number of genes hit in pathway
@@ -349,10 +371,8 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     SEXP category = (SEXP)0;                   // 10 KEGG,REACTOME,GO,PANT(=PANTHER),PID=(pathway interaciton database)
     SEXP pathway_name = (SEXP)0;                // 11 Name of pathway
     SEXP genesinpathway = (SEXP)0;             // 12 genes_space_separated   HUGO genes from user that hit the pathway
-
     SEXP pval3 = (SEXP)0;     
     SEXP OR = (SEXP)0;
-
     SEXP Rret = (SEXP)0;
     SEXP cls = (SEXP)0;       // R class 
     SEXP nam = (SEXP)0;       // R name 
@@ -360,14 +380,13 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
 
     (void)setup_by_egids();
 
-    if (Rf_isNull(permuteval)) 
-    {
-        permute_flag = 0;
-    }
-    else 
-    { 
-        permute_flag = asInteger(permuteval);
-    }
+    if (Rf_isNull(permute_arg)) { permute_flag = 0; } else { permute_flag = asInteger(permute_arg); }
+    if (Rf_isNull(extra_arg))   { extra_flag = 0; }   else { extra_flag = asInteger(extra_arg); }
+    if (Rf_isNull(legacy_arg))  { legacy_flag = 0; }  else { legacy_flag = asInteger(legacy_arg); }
+    if (Rf_isNull(gpcc_arg))    { gpcc_flag = 0; }    else { gpcc_flag = asInteger(gpcc_arg); }
+
+fprintf(stderr,"adbg legacy_flag is %d",legacy_flag); 
+// fprintf(stderr,"gpccdbg , in l2p, gpcc_arg=%p\n",gpcc_arg); 
 
     if (Rf_isNull(oneside_arg)) 
     {
@@ -515,12 +534,166 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
 // fprintf(stderr,"in l2pgetuniverseR 2.1 cats=%x after setup_used_paths() \n",catspat);  fflush(stderr);
 // NO, freed in setup_used_paths    if (in_universe) { free(in_universe); in_universe = (void *)0; }
 
-    (void)l2pfunc_R(user_in_genes,user_incnt,u,num_used_paths,real_universe_cnt,real_universe,permute_flag,seed);
+// fprintf(stderr,"gpccdbg in l2p, before l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
+    (void)l2pfunc_R(user_in_genes,user_incnt,u,num_used_paths,real_universe_cnt,real_universe,permute_flag,seed,gpcc_flag);
+// fprintf(stderr,"gpccdbg in l2p, after l2pfunc_R\n"); fflush(stderr); 
+    if (gpcc_flag)
+    {
+// fprintf(stderr,"gpccdbg: in l2p - in gpcc_flag output\n"); fflush(stderr); 
+#if 0
+    double gpcc_p; double gpcc_fdr; double enrichment_score;                  // ratio
+Clumns that will be output with L2P:
+1 Pathway_name          Name of pathway
+2 Enrichment_score      ((number_hits /(number_hits+number_misses)) - (number_user_genes/(number_user_genes+total_gens_minus_input))) * 100 <- tie-breaker #2
+3 GPCC_pval             Gpcc (gene pathway count correction) pval <- sort on this first (#1)
+4 GPCC_FDR              False discovery rate: benjamini hochberg (of GPCC p-value) <- this is what we recommend users use
+5 FET_pval              Fishers exact p-value (legacy)
+6 FET_FDR               False discovery rate (FET)
+7 Number_hits           Number of genes hit in pathway
+8 Number_genes_in_pathway        Number of genes in the pathway (size of pathway)*
+9 Percent_hits          Number_hits/total genes in pathway* <- tie-breaker #3
+10 Pathway_id           Canonical accession ( if available, otherwise assigned by us )
+11 Category             KEGG,REACTOME,GO,PANT(=PANTHER),PID=(pathway interaction database)  note: was ,source,
+12 Pathway_type         Functional_set,pathway,structural_complex,custom
+13 Genes_in_pathway     HUGO genes from user that hit the pathway
 
-    if (permute_flag)
+Optional Columns: This is for Rich to put into a flag where optional columns can be added to the L2P output (Optionalcols = 1, by default Optionalcols = 0)
+
+A – universe – (DEG count + pathway count) 
+B – pathway count – number of hits
+C – total DEG count - number of hits
+D – number of hits
+Odds_ratio              odds ratio
+Sum_of_pathways         Sum of unique pathways where pathway genes are also found
+#endif
+        maxflds = 13;
+        PROTECT(Rret = Rf_allocVector(VECSXP, maxflds)); // a list
+        protect_cnt++;
+// fprintf(stderr,"gpccdbg: in l2p - in gpcc_flag output 1\n"); fflush(stderr); 
+        PROTECT(pathway_name=Rf_allocVector(STRSXP, num_used_paths));              // 1 
+        PROTECT(enrichment_score=Rf_allocVector(REALSXP, num_used_paths));         // 2 
+        PROTECT(GPCC_pval=Rf_allocVector(REALSXP, num_used_paths ));               // 3 
+        PROTECT(GPCC_FDR=Rf_allocVector(REALSXP, num_used_paths ));                // 4 
+        PROTECT(pval=Rf_allocVector(REALSXP, num_used_paths ));                    // 5 
+        PROTECT(fdr=Rf_allocVector(REALSXP, num_used_paths));                      // 6 
+        PROTECT(number_hits=Rf_allocVector(INTSXP, num_used_paths));               // 7 
+        PROTECT(number_genes_in_pathway =Rf_allocVector(INTSXP, num_used_paths)); // 8 
+        PROTECT(percent_hits=Rf_allocVector(REALSXP, num_used_paths));              // 9 
+        PROTECT(pathway_id=Rf_allocVector(STRSXP, num_used_paths));                // 10
+        PROTECT(category=Rf_allocVector(STRSXP, num_used_paths));    // 11 is "l2p internal" an integer, but convert to string
+        PROTECT(pathway_type=Rf_allocVector(STRSXP, num_used_paths)); // 12
+        PROTECT(genesinpathway=Rf_allocVector(STRSXP, num_used_paths)); // 13
+        protect_cnt += maxflds;
+        for (ui=0 ; ui<num_used_paths ; ui++)
+        {
+            uptr = (u+ui);
+            SET_STRING_ELT(pathway_name, ui, mkChar(uptr->name) ); // 1
+            REAL(enrichment_score)[ui] = uptr->enrichment_score;   // 2 
+            REAL(GPCC_pval)[ui] = uptr->gpcc_p;                    // 3 
+            REAL(GPCC_FDR)[ui] = uptr->gpcc_fdr;                 // 4 
+            REAL(pval)[ui] =  uptr->pval;                          // 5 
+            REAL(fdr)[ui] =  uptr->fdr;                            // 6 
+            INTEGER(number_hits)[ui] = uptr->hitcnt;               // 7 
+            INTEGER(number_genes_in_pathway)[ui] = uptr->a;                    // 8 
+            if ( (uptr->a == 0) && (uptr->b == 0) ) REAL(percent_hits)[ui] = (double)0;
+            else 
+            {
+                  REAL(percent_hits)[ui] = (double)uptr->a/(double)((uptr->a)+(uptr->b));
+            }
+            SET_STRING_ELT(pathway_id, ui, mkChar(uptr->acc) );
+    
+            category_code_to_string( uptr->category , tmps_cat);
+            SET_STRING_ELT(category, ui, mkChar(tmps_cat));
+    
+            INTEGER(number_hits)[ui] = uptr->hitcnt; 
+            p2 =  malloc((uptr->hitcnt +2) * 34);  // plus some extra space
+            memset(p2,0,(uptr->hitcnt +2) * 34);
+            for (j=0 ; j<uptr->hitcnt ; j++)
+            {
+               zz = egid2hugo(*((uptr->genehits)+j));
+               if (j == 0) sprintf(tmps,"%s",zz); 
+               else sprintf(tmps," %s",zz); 
+               strcat(p2,tmps);
+            }
+            SET_STRING_ELT( genesinpathway, ui, mkChar( p2 ) );
+            if (p2) { free(p2); p2 = (char *)0; }
+        }
+// fprintf(stderr,"gpccdbg: in l2p - in gpcc_flag output 3\n"); fflush(stderr); 
+#if 0
+1 Pathway_name          Name of pathway
+2 Enrichment_score      ((number_hits /(number_hits+number_misses)) - (number_user_genes/(number_user_genes+total_gens_minus_input))) * 100 <- tie-breaker #2
+3 GPCC_pval             Gpcc (gene pathway count correction) pval <- sort on this first (#1)
+4 GPCC_FDR              False discovery rate: benjamini hochberg (of GPCC p-value) <- this is what we recommend users use
+5 FET_pval              Fishers exact p-value (legacy)
+6 FET_FDR               False discovery rate (FET)
+7 Number_hits           Number of genes hit in pathway
+8 Number_genes_in_pathway        Number of genes in the pathway (size of pathway)*
+9 Percent_hits          Number_hits/total genes in pathway* <- tie-breaker #3
+10 Pathway_id           Canonical accession ( if available, otherwise assigned by us )
+11 Category             KEGG,REACTOME,GO,PANT(=PANTHER),PID=(pathway interaction database)  -- was ,source,
+12 Pathway_type         Functional_set,pathway,structural_complex,custom
+13 Genes_in_pathway     HUGO genes from user that hit the pathway
+Optional Columns: This is for Rich to put into a flag where optional columns can be added to the L2P output (Optionalcols = 1, by default Optionalcols = 0)
+A – universe – (DEG count + pathway count) 
+B – pathway count – number of hits
+C – total DEG count - number of hits
+D – number of hits
+Odds_ratio              odds ratio
+Sum_of_pathways         Sum of unique pathways where pathway genes are also found
+#endif
+        SET_VECTOR_ELT( Rret,0, pathway_name);
+        SET_VECTOR_ELT( Rret,1, enrichment_score);
+        SET_VECTOR_ELT( Rret,2, GPCC_pval);
+        SET_VECTOR_ELT( Rret,3, GPCC_FDR);
+        SET_VECTOR_ELT( Rret,4, pval);
+        SET_VECTOR_ELT( Rret,5, fdr);
+        SET_VECTOR_ELT( Rret,6, number_hits);
+        SET_VECTOR_ELT( Rret,7, number_genes_in_pathway);
+        SET_VECTOR_ELT( Rret,8, percent_hits);
+        SET_VECTOR_ELT( Rret,9, pathway_id);
+        SET_VECTOR_ELT( Rret,10,category);
+        SET_VECTOR_ELT( Rret,11,number_hits);
+        SET_VECTOR_ELT( Rret,12,genesinpathway);
+    
+        PROTECT(cls = allocVector(STRSXP, 1)); // class attribute
+        protect_cnt++;
+    
+        SET_STRING_ELT(cls, 0, mkChar("data.frame"));
+        classgets(Rret, cls);
+    
+        PROTECT(nam = allocVector(STRSXP, maxflds));     // names attribute (column names)
+        protect_cnt++;
+
+// xxx
+        SET_STRING_ELT( nam, 0,  mkChar("pathway_name"));
+        SET_STRING_ELT( nam, 1,  mkChar("enrichment_score"));
+        SET_STRING_ELT( nam, 2,  mkChar("GPCC_pval"));
+        SET_STRING_ELT( nam, 3,  mkChar("GPCC_FDR"));
+        SET_STRING_ELT( nam, 4,  mkChar("pval"));
+        SET_STRING_ELT( nam, 5,  mkChar("fdr"));
+        SET_STRING_ELT( nam, 6,  mkChar("number_hits"));
+        SET_STRING_ELT( nam, 7,  mkChar("genes_in_pathway"));
+        SET_STRING_ELT( nam, 8,  mkChar("percent_hits"));
+        SET_STRING_ELT( nam, 9,  mkChar("pathway_id"));
+        SET_STRING_ELT( nam, 10, mkChar("category"));
+        SET_STRING_ELT( nam, 11, mkChar("hits"));
+        SET_STRING_ELT( nam, 12, mkChar("genesinpathway"));
+    
+        namesgets(Rret, nam);
+    
+        PROTECT(rownam = allocVector(STRSXP, num_used_paths )); // row.names attribute
+        protect_cnt++;
+        for (i=0 ; i<num_used_paths ; i++)
+        {
+            uptr = (u+i);
+            SET_STRING_ELT(rownam, i, mkChar( (char *)uptr->acc) );
+        }
+        setAttrib(Rret, R_RowNamesSymbol, rownam);
+    }
+    else if (permute_flag)
     {
         do_just_bh(user_incnt, u,num_used_paths,real_universe_cnt);
-        PROTECT(Rret = Rf_allocVector(VECSXP, 15)); // a list with 13 elements
+        PROTECT(Rret = Rf_allocVector(VECSXP, 15)); // a list with 15 elements
         protect_cnt++;
         maxflds = 15;
 // fprintf(stderr,"pmf 1\n"); fflush(stderr);
@@ -530,7 +703,6 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
             PROTECT(pathway_name=Rf_allocVector(STRSXP, num_used_paths));
             PROTECT(pval=Rf_allocVector(REALSXP, num_used_paths ));
             PROTECT(fdr=Rf_allocVector(REALSXP, num_used_paths));
-// xxx
             PROTECT(OR=Rf_allocVector(REALSXP, num_used_paths ));
             PROTECT(pval3=Rf_allocVector(REALSXP, num_used_paths ));
             PROTECT(enrichment_score=Rf_allocVector(REALSXP, num_used_paths));
@@ -553,10 +725,8 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
             REAL(pval)[ui] = uptr->pval;                           // 0 
             fdr_for_output = uptr->fdr;
             REAL(fdr)[ui] =   fdr_for_output;                      // 1 
-// xxx 
             REAL(pval)[ui] = uptr->OR;                             // 2 
             REAL(pval)[ui] = uptr->pval3;                          // 3 
-// xxx 
             REAL(enrichment_score)[ui] = uptr->enrichment_score;   // 4 
             if ( (uptr->a == 0) && (uptr->b == 0) )
                 REAL(percent_gene_hits_per_pathway)[ui] = (double)0;
@@ -593,10 +763,8 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
         SET_VECTOR_ELT( Rret,1, category);
         SET_VECTOR_ELT( Rret,2, pval);
         SET_VECTOR_ELT( Rret,3, fdr);
-// xxx
         SET_VECTOR_ELT( Rret,4, OR);
         SET_VECTOR_ELT( Rret,5, pval3);
-// xxx
         SET_VECTOR_ELT( Rret,6, enrichment_score);
         SET_VECTOR_ELT( Rret,7, percent_gene_hits_per_pathway);
         SET_VECTOR_ELT( Rret,8, number_hits);
@@ -613,7 +781,6 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
         SET_STRING_ELT(cls, 0, mkChar("data.frame"));
         classgets(Rret, cls);
     
-//fprintf(stderr,"pmf 4\n"); fflush(stderr);
         PROTECT(nam = allocVector(STRSXP, maxflds));     // names attribute (column names)
         protect_cnt++;
     
@@ -621,58 +788,50 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
         SET_STRING_ELT( nam, 1,  mkChar("category"));
         SET_STRING_ELT( nam, 2,  mkChar("pval"));
         SET_STRING_ELT( nam, 3,  mkChar("fdr"));
-// xxx
         SET_STRING_ELT( nam, 4,  mkChar("OR"));
         SET_STRING_ELT( nam, 5,  mkChar("pval3"));
-// xxx
         SET_STRING_ELT( nam, 6,  mkChar("enrichment_score"));
         SET_STRING_ELT( nam, 7,  mkChar("percent_gene_hits_per_pathway"));
         SET_STRING_ELT( nam, 8,  mkChar("number_hits"));
         SET_STRING_ELT( nam, 9,  mkChar("number_misses"));
-        SET_STRING_ELT( nam, 10,  mkChar("number_user_genes"));
-        SET_STRING_ELT( nam, 11,  mkChar("total_genes_minus_input"));
+        SET_STRING_ELT( nam, 10, mkChar("number_user_genes"));
+        SET_STRING_ELT( nam, 11, mkChar("total_genes_minus_input"));
         SET_STRING_ELT( nam, 12, mkChar("pathway_id"));
         SET_STRING_ELT( nam, 13, mkChar("pathway_type"));
         SET_STRING_ELT( nam, 14, mkChar("genesinpathway"));
     
-//fprintf(stderr,"pmf 5\n"); fflush(stderr);
         namesgets(Rret, nam);
     
         PROTECT(rownam = allocVector(STRSXP, num_used_paths )); // row.names attribute
         protect_cnt++;
-//fprintf(stderr,"pmf 6\n"); fflush(stderr);
         for (i=0 ; i<num_used_paths ; i++)
         {
             uptr = (u+i);
             SET_STRING_ELT(rownam, i, mkChar( (char *)uptr->acc) );
         }
         setAttrib(Rret, R_RowNamesSymbol, rownam);
-//fprintf(stderr,"pmf 7\n"); fflush(stderr);
     }
-    else
+    else if (legacy_flag == 1)
     {
+fprintf(stderr,"adbg in legacy_flag"); 
         do_pvals_and_bh(user_incnt, u, num_used_paths,real_universe_cnt,oneside);
 
         PROTECT(Rret = Rf_allocVector(VECSXP, 13)); // a list with 13 elements
         protect_cnt++;
-        for (i=0 ; i<maxflds ; i++) // maxflds = 11 for now
-        {
-            PROTECT(pathway_name=Rf_allocVector(STRSXP, num_used_paths));
-            PROTECT(pval=Rf_allocVector(REALSXP, num_used_paths ));
-            PROTECT(fdr=Rf_allocVector(REALSXP, num_used_paths));
-            PROTECT(enrichment_score=Rf_allocVector(REALSXP, num_used_paths));
-            PROTECT(percent_gene_hits_per_pathway =Rf_allocVector(REALSXP, num_used_paths));
-            PROTECT(number_hits=Rf_allocVector(INTSXP, num_used_paths));
-            PROTECT(number_misses=Rf_allocVector(INTSXP, num_used_paths));
-            PROTECT(number_user_genes=Rf_allocVector(INTSXP, num_used_paths));
-            PROTECT(total_genes_minus_input=Rf_allocVector(INTSXP, num_used_paths));
-            PROTECT(pathway_id=Rf_allocVector(STRSXP, num_used_paths));
-            PROTECT(category=Rf_allocVector(STRSXP, num_used_paths));// is "l2p internal" an integer, but convert to string
-            PROTECT(pathway_type=Rf_allocVector(STRSXP, num_used_paths));
-            PROTECT(genesinpathway=Rf_allocVector(STRSXP, num_used_paths));
-    
-            protect_cnt += 13;
-        }
+        PROTECT(pathway_name=Rf_allocVector(STRSXP, num_used_paths));
+        PROTECT(pval=Rf_allocVector(REALSXP, num_used_paths ));
+        PROTECT(fdr=Rf_allocVector(REALSXP, num_used_paths));
+        PROTECT(enrichment_score=Rf_allocVector(REALSXP, num_used_paths));
+        PROTECT(percent_gene_hits_per_pathway =Rf_allocVector(REALSXP, num_used_paths));
+        PROTECT(number_hits=Rf_allocVector(INTSXP, num_used_paths));
+        PROTECT(number_misses=Rf_allocVector(INTSXP, num_used_paths));
+        PROTECT(number_user_genes=Rf_allocVector(INTSXP, num_used_paths));
+        PROTECT(total_genes_minus_input=Rf_allocVector(INTSXP, num_used_paths));
+        PROTECT(pathway_id=Rf_allocVector(STRSXP, num_used_paths));
+        PROTECT(category=Rf_allocVector(STRSXP, num_used_paths));// is "l2p internal" an integer, but convert to string
+        PROTECT(pathway_type=Rf_allocVector(STRSXP, num_used_paths));
+        PROTECT(genesinpathway=Rf_allocVector(STRSXP, num_used_paths));
+        protect_cnt += 13;
         for (ui=0 ; ui<num_used_paths ; ui++)
         {
             uptr = (u+ui);
@@ -774,7 +933,6 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     }
     if (by_egids) { free(by_egids); by_egids = (void *)0; }
     if (real_universe) { free(real_universe); real_universe = (void *)0; }
-// fprintf(stderr,"aaa returning %p \n",Rret); fflush(stderr); 
     if (user_in_genes_original) free (user_in_genes_original);
     if (mycustompw) 
     {
@@ -789,7 +947,7 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
         free(mycustompw); 
     }
     UNPROTECT(protect_cnt);
-// fprintf(stderr,"in l2pgetuniverseR after frees \n");  fflush(stderr);
+// fprintf(stderr,"gpccdbg in l2pgetuniverseR after frees \n");  fflush(stderr);
     return Rret;
 }
 
