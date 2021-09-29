@@ -611,7 +611,7 @@ static void benjaminihochberg(int n,double pvals[], double returnpvals[])
     i = (struct ordertype *)malloc((sizeof(struct ordertype))*n);
     for (k=n,j=0;j<n;j++,k--) (i+j)->order=k;
 
-#define RDEBUG 1
+#define RDEBUG 0
 #if RDEBUG
 FILE *fp;
 fp = fopen("test.pvals","w");
@@ -1638,7 +1638,6 @@ fprintf(stderr,"in chooseAugRandList() auggenecnt n=%d,  ingenecnt m=%d\n",n,m);
         // randint = (int)(randrslt*m);
         randint = (int)(randrslt*(double)n);
 fprintf(stderr,"in chooseAugRandList()3.1, m=%d randint=%d unif_rand randrslt=%f\n",m,randint,randrslt); fflush(stderr); 
-// zzz
 #else
         randint = rand() % n;
 #endif
@@ -1796,18 +1795,18 @@ if (strcmp(uptr->acc,"ko00010") == 0) { fprintf(stderr,"adbg : table_calc ko0001
 #if 0
         if ((pv < SIG_P) & (OR > 1)) ++n_sig_paths;
 #endif
-// zzz
-        D = uptr->pathhits_gpsum; // wrong? number of pathways all genes in this pathway hit
+//  VERY IMPORTANT CODE,  HERE'S WHERE IT HAPPENS ...
+        D = uptr->pathhits_gpsum; // wrong? number of pathways any and all genes in this pathway hit
         C = aug_deg_count - D; // or d?   aug_deg_count is number of times the user input genes hit in any and all pathways.  
         B = uptr->pathcountsum - D; // pathcountsum is the sum of the gene gp cts for all hits in the pathway
         A = aug_gene_ct - B - C - D;  //  aug_gene_ct is sum of all numfixedgenes in usedpaths[]
-        aug_scale = (float)real_universe_cnt/((float)(aug_gene_ct + d));
+        aug_scale = (float)real_universe_cnt/((float)(aug_gene_ct + d)); // real_universe_cnt is count of unique genes in universe
         uptr->A_scaled = A_scaled = ceil(A*aug_scale);
         uptr->B_scaled = B_scaled = ceil(B*aug_scale);
         uptr->C_scaled = C_scaled = ceil(C*aug_scale);
         uptr->D_scaled = D_scaled = d; // not scaled!
         aug_pv = exact22(A_scaled,B_scaled,C_scaled,D_scaled);
-        uptr->gpcc_p = aug_pv;
+        uptr->gpcc_p = aug_pv;     // heres the pvalue for GPCC ***
         *(pvals2+i) = aug_pv;
         if (C_scaled*B_scaled != 0)
         {
@@ -3288,16 +3287,16 @@ int main(int argc,char *argv[])
     int oneside = 0;
     unsigned int seed = 0;
     unsigned int catspat = 0;
-    unsigned int num_used_paths;
-    struct used_path_type *u;
-    struct used_path_type *uptr;
-    int status;
-    unsigned int *real_universe;
-    unsigned int real_universe_cnt;
+    unsigned int num_used_paths = 0;
+    struct used_path_type *u = (struct used_path_type *)0;
+    struct used_path_type *uptr = (struct used_path_type *)0;
+    int status = 0;
+    unsigned int *real_universe = (unsigned int *)0;
+    unsigned int real_universe_cnt = 0;
     int get_universe_flag = 0;
     unsigned int i = 0;
     unsigned int j = 0;
-    char *z;
+    char *z = (char *)0;
     double fdr_for_output;
 #if NELSON_C
 //    double corr_tst;
@@ -3313,18 +3312,19 @@ int main(int argc,char *argv[])
     srandom( time( NULL ) );
     (void)setup_by_egids();
     l2p_init_C(argc,argv,&catspat,&precise_flag,&permute_option,&no_header_flag,universe_file,custom_file,&get_universe_flag,&oneside,&seed);
-fprintf(stderr,"rpf permute_option=%d\n",permute_option); fflush(NULL);
+// fprintf(stderr,"rpf permute_option=%d\n",permute_option); fflush(NULL);
     u = setup_used_paths(&num_used_paths, catspat,universe_file, 0,(void *)0,custom_file,&real_universe_cnt,&real_universe,0,(struct custom_type *)0);
     if (get_universe_flag == 1)
     {
         print_universe(real_universe_cnt,real_universe);
         return 0;
     }
-#if 0
+
+
+
+// fprintf(stderr,"in main(), before  l2pfunc\n"); fflush(NULL);
     status = l2pfunc(u,num_used_paths,real_universe_cnt,real_universe,permute_option,&user_incnt,oneside);
-#endif
-    status = l2pfunc(u,num_used_paths,real_universe_cnt,real_universe,permute_option,&user_incnt,oneside);
-fprintf(stderr,"in main(), after  l2pfunc\n"); fflush(NULL);
+// fprintf(stderr,"in main(), after  l2pfunc\n"); fflush(NULL);
 
 #if NELSON_TEST
     pathcalls = fopen(OUTPUTFILE, "w");
