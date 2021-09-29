@@ -278,7 +278,7 @@ int l2pfunc_R(unsigned int *user_in_genes, unsigned int user_incnt, struct used_
 UNUSED(permute_flag);
 
     
-fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
+//fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
     for (i=0 ; i<num_used_paths ; i++)
     {
         uptr = (usedpaths+i);
@@ -300,16 +300,16 @@ fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr);
         }
         uptr->hitcnt = ll;
     }
-fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d here 1\n",gpcc_flag); fflush(stderr); 
+//fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d here 1\n",gpcc_flag); fflush(stderr); 
     if (gpcc_flag == 1)
     {
-fprintf(stderr,"gpccdbg in GPCC flag, user_incnt=%d\n",user_incnt); fflush(stderr); 
+//fprintf(stderr,"gpccdbg in GPCC flag, user_incnt=%d\n",user_incnt); fflush(stderr); 
         for (i=0;i<user_incnt;i++)
             ingenes[i] = *(user_in_genes+i);
         ingenecnt = user_incnt;
-fprintf(stderr,"gpccdbg before GPCC **** \n"); fflush(stderr); 
+//fprintf(stderr,"gpccdbg before GPCC **** \n"); fflush(stderr); 
         GPCC(usedpaths,num_used_paths,real_universe_cnt,real_universe);
-fprintf(stderr,"gpccdbg after GPCC\n"); fflush(stderr); 
+//fprintf(stderr,"gpccdbg after GPCC\n"); fflush(stderr); 
     }
     return ret;
 }
@@ -379,7 +379,6 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     SEXP cls = (SEXP)0;       // R class 
     SEXP nam = (SEXP)0;       // R name 
     SEXP rownam = (SEXP)0;    // row names
-//     int seed = 0;
 
     (void)setup_by_egids();
 
@@ -387,6 +386,23 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     if (Rf_isNull(extra_arg))   { extra_flag = 0; }   else { extra_flag = asInteger(extra_arg); }
     if (Rf_isNull(legacy_arg))  { legacy_flag = 0; }  else { legacy_flag = asInteger(legacy_arg); }
     if (Rf_isNull(gpcc_arg))    { gpcc_flag = 0; }    else { gpcc_flag = asInteger(gpcc_arg); }
+
+    len = length(lst);
+    user_in_genes = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
+    user_in_genes_original = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
+    if (!user_in_genes)
+        return (SEXP) -1; // why not 0 ?
+    for (k = i = 0; i < len; i++)
+    {
+        strcpy(tmps,CHAR(STRING_ELT(lst, i)));
+        ui = hugo2egid(tmps);
+        if (ui != UINT_MAX) { *(user_in_genes_original+k) = ui; k++; }
+    }
+#if RADIX
+    radix_ui(user_in_genes_original,k);
+#else
+    qsort(user_in_genes_original,k,sizeof(unsigned int),cmp_ui);
+#endif
 
 // fprintf(stderr,"adbg legacy_flag is %d",legacy_flag); 
 // fprintf(stderr,"gpccdbg , in l2p, gpcc_arg=%p\n",gpcc_arg); 
@@ -420,18 +436,22 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
             len_of_vector = length(list);
             mycustompwptr->genes = (unsigned int *)malloc(sizeof(unsigned int)*len_of_vector);
             memset( mycustompwptr->genes,0,(sizeof(unsigned int)*len_of_vector));
-            mycustompwptr->numgenes = 0;   // will set this properly later
-            for (j=0;j<len_of_vector;j++)
+            mycustompwptr->numgenes = 0;   // will set this properly later , initialize to zero for now
+            for (j=0 ; j<len_of_vector ; j++)
             {
-                tmps2[0] = (char)0;
+                memset(tmps2,0,sizeof(tmps2));
                 strncpy(tmps2,CHAR(STRING_ELT(list, j)),PATH_MAX-2);
                 if (j == 0) mycustompwptr->name = strdup(tmps2);    // name. check: must free this!
-                else if (j == 1) mycustompwptr->optional = strdup(tmps2); // could this be a URL? not yet.
+                else if (j == 1) mycustompwptr->optional = strdup(tmps2); //  gmt says second field meaning is unspecified. could this be a URL someday?
                 else 
                 {
                     ui = hugo2egid(tmps2);
 // fprintf(stderr,"custgene is i=%d j=%d %u %s\n",i,j,ui,tmps2);  fflush(stderr); 
-                    if (ui != UINT_MAX) { *(mycustompwptr->genes + j - 2) = ui; mycustompwptr->numgenes++; } // nb:-2
+                    if (ui != UINT_MAX) 
+                    { 
+                        *(mycustompwptr->genes + j - 2) = ui;  // nb:-2 . remember fields 1 and 2 are not the genes, fields3 and greater are
+                        mycustompwptr->numgenes++;
+                    }
                 }
             }
 #if RADIX
@@ -472,24 +492,6 @@ fprintf(stderr,"NOTE: Not sure what's up. Can't parse categroies \n");  fflush(N
 
     if (Rf_isNull(customfn)) {} else strncpy(custom_file,CHAR(STRING_ELT(customfn, 0)),PATH_MAX-2);
     if (Rf_isNull(universefn)) {} else strncpy(universe_file,CHAR(STRING_ELT(universefn, 0)),PATH_MAX-2);
-
-    len = length(lst);
-    user_in_genes = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
-    user_in_genes_original = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
-
-    if (!user_in_genes)
-        return (SEXP) -1; // why not 0 ?
-    for (k = i = 0; i < len; i++)
-    {
-        strcpy(tmps,CHAR(STRING_ELT(lst, i)));
-        ui = hugo2egid(tmps);
-        if (ui != UINT_MAX) { *(user_in_genes_original+k) = ui; k++; }
-    }
-#if RADIX
-    radix_ui(user_in_genes_original,k);
-#else
-    qsort(user_in_genes_original,k,sizeof(unsigned int),cmp_ui);
-#endif
 
     for (j=i=0;i<k;i++)
     {                // de duplicate list 
@@ -550,14 +552,14 @@ fprintf(stderr,"NOTE: Not sure what's up. Can't parse categroies \n");  fflush(N
     if (in_universe_original) { free(in_universe_original); in_universe_original = (void *)0; }
 
     u = setup_used_paths(&num_used_paths, catspat,universe_file,in_universe_cnt,in_universe,custom_file,&real_universe_cnt,&real_universe,len_of_list,mycustompw);
-fprintf(stderr,"in l2pgetuniverseR 2.1 cats=%x after setup_used_paths() \n",catspat);  fflush(stderr);
+//fprintf(stderr,"in gpccdbg  after setup_used_path cats=%x after setup_used_paths() \n",catspat);  fflush(stderr);
 // NO, freed in setup_used_paths    if (in_universe) { free(in_universe); in_universe = (void *)0; }
 
-fprintf(stderr,"gpccdbg in l2p, before l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
+//fprintf(stderr,"gpccdbg in l2p, before l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
     GetRNGstate();
     (void)l2pfunc_R(user_in_genes,user_incnt,u,num_used_paths,real_universe_cnt,real_universe,permute_flag,gpcc_flag);
     PutRNGstate();
-fprintf(stderr,"gpccdbg in l2p, after l2pfunc_R\n"); fflush(stderr); 
+//fprintf(stderr,"gpccdbg in l2p, after l2pfunc_R\n"); fflush(stderr); 
     if (gpcc_flag)
     {
 // fprintf(stderr,"gpccdbg: in l2p - in gpcc_flag output\n"); fflush(stderr); 
@@ -621,7 +623,7 @@ or
             uptr = (u+ui);
             SET_STRING_ELT(pathway_name, ui, mkChar(uptr->name) ); // 1
             REAL(enrichment_score)[ui] = uptr->enrichment_score;   // 2 
-if (strcmp(uptr->acc,"ko00010") == 0) { fprintf(stderr,"adbg : l2p (rinterface.c)  ko00010 enrichment_score is %f \n",uptr->enrichment_score); }
+// if (strcmp(uptr->acc,"ko00010") == 0) { fprintf(stderr,"adbg : l2p (rinterface.c)  ko00010 enrichment_score is %f \n",uptr->enrichment_score); }
             REAL(GPCC_pval)[ui] = uptr->gpcc_p;                    // 3 
             REAL(GPCC_FDR)[ui] = uptr->gpcc_fdr;                   // 4 
             REAL(pval)[ui] =  uptr->pval;                          // 5 
@@ -655,7 +657,7 @@ if (strcmp(uptr->acc,"ko00010") == 0) { fprintf(stderr,"adbg : l2p (rinterface.c
                  INTEGER(universe_count)[ui] = uptr->d  ;   // 14
                  INTEGER(user_input_count)[ui] = uptr->c  ;   // 15
                  REAL(odds_ratio)[ui] = uptr->gpcc_OR  ;   // 16
-fprintf(stderr,"rpfdbg OR = %f\n",uptr->gpcc_OR);
+// fprintf(stderr,"rpfdbg OR = %f\n",uptr->gpcc_OR);
             }
         }
 // fprintf(stderr,"gpccdbg: in l2p - in gpcc_flag output 3\n"); fflush(stderr); 
@@ -861,7 +863,7 @@ Sum_of_pathways         Sum of unique pathways where pathway genes are also foun
     }
     else if (legacy_flag == 1)
     {
-fprintf(stderr,"adbg in legacy_flag\n");  fflush(NULL); 
+// fprintf(stderr,"adbg in legacy_flag\n");  fflush(NULL); 
         do_pvals_and_bh(user_incnt, u, num_used_paths,real_universe_cnt,oneside);
 
         PROTECT(Rret = Rf_allocVector(VECSXP, 13)); // a list with 13 elements
