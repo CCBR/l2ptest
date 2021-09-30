@@ -16,7 +16,6 @@ R interface
 #include <math.h>
 #include <limits.h>
 #include <errno.h>
-#include <unistd.h>
 
 #include "pathworks.h"
 
@@ -389,9 +388,15 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
 
     len = length(lst);
     user_in_genes = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
-    user_in_genes_original = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
     if (!user_in_genes)
         return (SEXP) -1; // why not 0 ?
+    user_in_genes_original = (unsigned int *)malloc(sizeof(unsigned int)*len); // remember to free this
+    if (!user_in_genes_original)
+    {
+        free(user_in_genes);
+        user_in_genes = (unsigned int *)0;
+        return (SEXP) -1; // why not 0 ?
+    }
     for (k = i = 0; i < len; i++)
     {
         strcpy(tmps,CHAR(STRING_ELT(lst, i)));
@@ -968,7 +973,7 @@ Sum_of_pathways         Sum of unique pathways where pathway genes are also foun
         }
         setAttrib(Rret, R_RowNamesSymbol, rownam);
     }
-    if (user_in_genes) free(user_in_genes);
+    if (user_in_genes) { free(user_in_genes); user_in_genes = (unsigned int *)0; }
     if (u) 
     {
         for (i=0 ; i<num_used_paths ; i++)
