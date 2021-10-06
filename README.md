@@ -1,6 +1,6 @@
 This is for test versions of l2p 
 
-Latest test version is 8.4
+Latest test version is 8.5
 
 There are now two libraries : 1) l2p and 2) l2psupp
 
