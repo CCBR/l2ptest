@@ -12,12 +12,12 @@ void category_set_all(unsigned int *pat)
 
 int string_to_category_code(char cats[])
 {
-if  (strcmp(cats,"BIOCYC") == 0)    return CAT_NCBI_BIOCYC;
-else if  (strcmp(cats,"GO") == 0)   return CAT_NCBI_GO;
-else if  (strcmp(cats,"KEGG") == 0) return CAT_NCBI_KEGG;
-else if  (strcmp(cats,"PANTH") == 0) return CAT_NCBI_PANTH;
+     if  (strcmp(cats,"BIOCYC") == 0)  return CAT_NCBI_BIOCYC;
+else if  (strcmp(cats,"GO") == 0)      return CAT_NCBI_GO;
+else if  (strcmp(cats,"KEGG") == 0)    return CAT_NCBI_KEGG;
+else if  (strcmp(cats,"PANTH") == 0)   return CAT_NCBI_PANTH;
 
-else if  (strcmp(cats,"PID") == 0) return CAT_NCBI_PID;
+else if  (strcmp(cats,"PID") == 0)     return CAT_NCBI_PID;
 else if  (strcmp(cats,"Pathway Interaction Database") == 0) return CAT_NCBI_PID;  // dupe (see previous line)
 
 else if  (strcmp(cats,"REACTOME") == 0) return CAT_NCBI_REACTOME;
@@ -33,6 +33,7 @@ else if  (strcmp(cats,"C8") == 0) return CAT_MSIG_C8;
 else if  (strcmp(cats,"H") == 0) return CAT_MSIG_H;
 else if  (strcmp(cats,"CUSTOM") == 0) return CAT_CUSTOM;
 else return 0;
+
 // else if  (strcmp(cats,"ARCHIVED") == 0)   return CAT_MSIG_ARCHIVED; 
 }
 

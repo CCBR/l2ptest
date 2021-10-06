@@ -322,7 +322,6 @@ int cmp_ui(const void *a, const void *b);
 unsigned int *get_used_universe(struct used_path_type *u, unsigned int num_used, unsigned int *real_universe_cnt);
 int cmp_ordertype_by_val_REV(const void *a, const void *b);
 int cmp_usi(const void *a, const void *b);
-struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned int catspat, char universe_file[], unsigned int in_universe_cnt,unsigned int *in_universe, char custom_file[], unsigned int *real_universe_cnt_ptr,unsigned int **real_universe,unsigned int lencust,struct custom_type *mycustompw);
 int do_pvals_and_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], unsigned int numusedpaths,unsigned int real_universe_cnt, int oneside);
 unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths, unsigned int real_universe_cnt, unsigned int *real_universe);
 int do_just_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], unsigned int num_used_paths,unsigned int real_universe_cnt);
@@ -331,3 +330,5 @@ void radix_ui(register unsigned int vector[], register const unsigned int size) 
 int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt,unsigned int *real_universe, int permute_flag, int *user_incnt_ptr, int oneside);
 struct updated_genes_type *updategenesR(char *genes[], const int len);
 struct entrez_hugo_ensemble_type *egids2hugos(unsigned int egids[], const int len);
+struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned int catspat, char universe_file[], unsigned int in_universe_cnt,unsigned int *in_universe, char custom_file[], unsigned int *real_universe_cnt_ptr,unsigned int **real_universe,unsigned int lencust,struct custom_type *mycustompw);
+

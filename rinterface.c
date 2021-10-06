@@ -277,7 +277,8 @@ int l2pfunc_R(unsigned int *user_in_genes, unsigned int user_incnt, struct used_
 UNUSED(permute_flag);
 
     
-//fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
+// fprintf(stderr,"l2pfunc_R : %p user_incnt=%u %p %u %u %p %u %u\n", user_in_genes, user_incnt, usedpaths,num_used_paths,real_universe_cnt, real_universe,permute_flag,gpcc_flag);
+
     for (i=0 ; i<num_used_paths ; i++)
     {
         uptr = (usedpaths+i);
@@ -299,14 +300,13 @@ UNUSED(permute_flag);
         }
         uptr->hitcnt = ll;
     }
-//fprintf(stderr,"gpccdbg in l2pfunc_R gpcc_flag=%d here 1\n",gpcc_flag); fflush(stderr); 
     if (gpcc_flag == 1)
     {
 //fprintf(stderr,"gpccdbg in GPCC flag, user_incnt=%d\n",user_incnt); fflush(stderr); 
         for (i=0;i<user_incnt;i++)
             ingenes[i] = *(user_in_genes+i);
         ingenecnt = user_incnt;
-//fprintf(stderr,"gpccdbg before GPCC **** \n"); fflush(stderr); 
+// fprintf(stderr,"gpccdbg before GPCC %p %u %u %p\n",usedpaths,num_used_paths,real_universe_cnt,real_universe); fflush(stderr); 
         GPCC(usedpaths,num_used_paths,real_universe_cnt,real_universe);
 //fprintf(stderr,"gpccdbg after GPCC\n"); fflush(stderr); 
     }
@@ -321,12 +321,12 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     char tmps[512];
     char universe_file[PATH_MAX];
     char custom_file[PATH_MAX];
-    unsigned int i,k;
+    unsigned int i,k,k2;
     unsigned int j;
-    unsigned int len_of_list = 0;  // length of list of lists , from Rf_length() which return R_len_t ( which in int? )
+    unsigned int len_of_user_pws = 0;  // length of list of lists , from Rf_length() which return R_len_t ( which in int? )
     unsigned int len_of_vector = 0;
     struct used_path_type *uptr;
-    unsigned int *in_universe = (unsigned int *)0;
+    unsigned int *user_in_univ_ptr = (unsigned int *)0;
     unsigned int *in_universe_original = (unsigned int *)0;
     unsigned int in_universe_cnt = 0;
     unsigned int *real_universe = (unsigned int *)0;
@@ -426,15 +426,16 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     if (Rf_isNull(custompws))      //  if (custompws == (SEXP)0)
     {
 //        custom_flag = 0; not used
+        len_of_user_pws = 0;
     }
     else
     {
 /* struct custom_type { char *name; char *optional; unsigned int numgenes; unsigned int *genes; }; */
 //        custom_flag = 1; not used
-        len_of_list = (int)length(custompws);
-        mycustompw = (struct custom_type *)malloc(sizeof(struct custom_type )*len_of_list); // remember to free this
-        memset(mycustompw,0,sizeof(struct custom_type )*len_of_list);
-        for (i=0;i<len_of_list;i++)
+        len_of_user_pws = (int)length(custompws);
+        mycustompw = (struct custom_type *)malloc(sizeof(struct custom_type )*len_of_user_pws); // remember to free this
+        memset(mycustompw,0,sizeof(struct custom_type )*len_of_user_pws);
+        for (i=0;i<len_of_user_pws;i++)
         {
             mycustompwptr = mycustompw + i;
             list = VECTOR_ELT(custompws, i);
@@ -473,6 +474,7 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
     if (Rf_isNull(categories ))
     {
         category_set_all(&catspat);
+// fprintf(stderr,"no parsecats after category_set_all: %u (null categories) \n",catspat);
     }
     else
     {
@@ -480,12 +482,13 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
         {
              tmps[0] = (char)0;
              len = length(categories);
-             for (k = 0; k < len; k++)
+             for (k2 = 0; k2 < len; k2++)
              {
-                 if (k) strcat(tmps,",");
-                 strncpy(tmps2,CHAR(STRING_ELT(categories, k)),PATH_MAX-2);
+                 if (k2) strcat(tmps,",");
+                 strncpy(tmps2,CHAR(STRING_ELT(categories, k2)),PATH_MAX-2);
                  strcat(tmps,tmps2);
              }
+// fprintf(stderr,"before parsecats : %s\n",tmps);
             (void)parsecats(tmps,&catspat);     // set catpats
         }
         else 
@@ -493,7 +496,8 @@ SEXP l2p(SEXP lst, SEXP categories, SEXP universe, SEXP custompws, SEXP customfn
 fprintf(stderr,"NOTE: Not sure what's up. Can't parse categroies \n");  fflush(NULL);
         }
     }
-//fprintf(stderr,"rpfdbg categories here 9, catspats=%x\n",catspat);   fflush(NULL); 
+categories_pattern_to_strings(catspat,tmps);
+// fprintf(stderr,"rpfdbg categories here 9, catspats=%x = \"%s\"\n",catspat,tmps);   fflush(NULL); 
 
     if (Rf_isNull(customfn)) {} else strncpy(custom_file,CHAR(STRING_ELT(customfn, 0)),PATH_MAX-2);
     if (Rf_isNull(universefn)) {} else strncpy(universe_file,CHAR(STRING_ELT(universefn, 0)),PATH_MAX-2);
@@ -518,12 +522,12 @@ fprintf(stderr,"NOTE: Not sure what's up. Can't parse categroies \n");  fflush(N
     len = length(universe);
     if (user_universe_flag == 1)
     {
-        in_universe = (unsigned int *)malloc(sizeof(unsigned int)*len);             // remember to free this
-        if (!in_universe) return (SEXP) -1;
+        user_in_univ_ptr = (unsigned int *)malloc(sizeof(unsigned int)*len);             // remember to free this
+        if (!user_in_univ_ptr) return (SEXP) -1;
         in_universe_original = (unsigned int *)malloc(sizeof(unsigned int)*len);    // remember to free this
         if (!in_universe_original) 
 	{
-            free(in_universe);
+            free(user_in_univ_ptr);
             return (SEXP) -1;
 	}
         for (k = i = 0; i < len; i++)
@@ -543,12 +547,12 @@ fprintf(stderr,"NOTE: Not sure what's up. Can't parse categroies \n");  fflush(N
             {
                 if ( *(in_universe_original+i) == *(in_universe_original+i-1) )
                    continue;
-                *(in_universe+j) = *(in_universe_original+i);
+                *(user_in_univ_ptr+j) = *(in_universe_original+i);
                 j++;
             }
             else 
             {
-                *(in_universe+j) = *(in_universe_original+i);
+                *(user_in_univ_ptr+j) = *(in_universe_original+i);
                 j++;
             }
         }
@@ -556,11 +560,11 @@ fprintf(stderr,"NOTE: Not sure what's up. Can't parse categroies \n");  fflush(N
     }
     if (in_universe_original) { free(in_universe_original); in_universe_original = (void *)0; }
 
-    u = setup_used_paths(&num_used_paths, catspat,universe_file,in_universe_cnt,in_universe,custom_file,&real_universe_cnt,&real_universe,len_of_list,mycustompw);
+    u = setup_used_paths(&num_used_paths, catspat,universe_file,in_universe_cnt,user_in_univ_ptr,custom_file,&real_universe_cnt,&real_universe,len_of_user_pws,mycustompw);
 //fprintf(stderr,"in gpccdbg  after setup_used_path cats=%x after setup_used_paths() \n",catspat);  fflush(stderr);
-// NO, freed in setup_used_paths    if (in_universe) { free(in_universe); in_universe = (void *)0; }
+// NO, freed in setup_used_paths    if (user_in_univ_ptr) { free(user_in_univ_ptr); user_in_univ_ptr = (void *)0; }
 
-//fprintf(stderr,"gpccdbg in l2p, before l2pfunc_R gpcc_flag=%d\n",gpcc_flag); fflush(stderr); 
+// fprintf(stderr,"gpccdbg in l2p, before l2pfunc_R gpcc_flag=%d user_incnt=%u\n",gpcc_flag,user_incnt); fflush(stderr); 
     GetRNGstate();
     (void)l2pfunc_R(user_in_genes,user_incnt,u,num_used_paths,real_universe_cnt,real_universe,permute_flag,gpcc_flag);
     PutRNGstate();
@@ -991,7 +995,7 @@ Sum_of_pathways         Sum of unique pathways where pathway genes are also foun
     if (user_in_genes_original) free (user_in_genes_original);
     if (mycustompw) 
     {
-        for (i=0;i<len_of_list;i++) 
+        for (i=0;i<len_of_user_pws;i++) 
         { 
             mycustompwptr = mycustompw + i;
             if (mycustompwptr->name) free (mycustompwptr->name); 

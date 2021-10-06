@@ -2114,7 +2114,6 @@ fprintf(stderr,"deg_count = %d\n",deg_count); fflush(NULL);
         // test: at ui = 0, put in the actual genes
         // Choose ingenecnt unique genes
         if ((ui % 10000) == 0) { fprintf(stderr,"permute ui = %d\n", ui); fflush(NULL); }
-fprintf(stderr,"rpfdbg here 1\n"); fflush(stderr); 
         for (I=0 ; I<num_used_paths ; I++) // test, remove
         {
             uptr = (usedpaths+I);
@@ -2445,7 +2444,7 @@ int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigne
     unsigned int ui_ej;
     unsigned int k,ll;
 
-fprintf(stderr,"rpf in l2pfunc() start, permute_option=%d\n",permute_option); fflush(stderr);  
+// fprintf(stderr,"rpf in l2pfunc() start, permute_option=%d\n",permute_option); fflush(stderr);  
     *user_incnt_ptr = j = 0;
     // ADDING INPUT FILE FOR C RUN, INPUT GENE LIST
     // struct timespec time1, time2;
@@ -2475,7 +2474,7 @@ fprintf(stderr,"rpf in l2pfunc() start, permute_option=%d\n",permute_option); ff
              fprintf(stderr,"Note: invalid gene \"%s\" in user input\n",s);  
              continue;
         }
-#if 1
+#if 0
         if (bsearch2(ui,real_universe,real_universe_cnt) == 0)
         {
              fprintf(stderr,"Note: gene not in universe : \"%s\" \n",s);  
@@ -2539,12 +2538,12 @@ fprintf(stderr,"here , before do_pvals %d %d %p %d \n",real_universe_cnt , user_
 fflush(NULL);
 #endif
 
-fprintf(stderr,"rpf permute_option=%d\n",permute_option); 
+// fprintf(stderr,"rpf permute_option=%d\n",permute_option); 
     *user_incnt_ptr = user_incnt;
 
     if (permute_option == 0)
     {
-fprintf(stderr,"rpf num_used_paths=%d\n",num_used_paths); 
+// fprintf(stderr,"rpf num_used_paths=%d\n",num_used_paths); 
         for (i=0 ; i<num_used_paths ; i++)
         {
             uptr = (usedpaths+i);
@@ -2572,9 +2571,9 @@ fprintf(stderr,"rpf num_used_paths=%d\n",num_used_paths);
     }
     else if (permute_option == 1)
     {
-fprintf(stderr,"in lp2func(), before GPCC\n"); fflush(NULL);
+// fprintf(stderr,"in lp2func(), before GPCC\n"); fflush(NULL);
         GPCC(usedpaths,num_used_paths,real_universe_cnt, real_universe);
-fprintf(stderr,"in lp2func(), after  GPCC\n"); fflush(NULL);
+// fprintf(stderr,"in lp2func(), after  GPCC\n"); fflush(NULL);
     // RICH: this code does all comparisons out of GPCC
 // rpf xxx fix
         do_just_bh(user_incnt,usedpaths,num_used_paths,real_universe_cnt);
@@ -2582,7 +2581,7 @@ fprintf(stderr,"in lp2func(), after  GPCC\n"); fflush(NULL);
     }
     else if (permute_option == 2)
     {
-fprintf(stderr,"rpf num_used_paths=%d, permute_option=2\n",num_used_paths); 
+// fprintf(stderr,"rpf num_used_paths=%d, permute_option=2\n",num_used_paths); 
         for (i=0 ; i<num_used_paths ; i++)
         {
             uptr = (usedpaths+i);
@@ -3030,7 +3029,7 @@ struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned i
             {
                 usi = pwgenes[pws[i].pwgenesindex+j];
                 ui = genes[usi].egid;
-#if 1
+#if 0
                 if (bsearch2(ui,user_universe_genes,universe_cnt) == 1)
                 {
                     *(this_egids+newcnt) = ui; // put this in the right place
@@ -3313,6 +3312,8 @@ int main(int argc,char *argv[])
     (void)setup_by_egids();
     l2p_init_C(argc,argv,&catspat,&precise_flag,&permute_option,&no_header_flag,universe_file,custom_file,&get_universe_flag,&oneside,&seed);
 // fprintf(stderr,"rpf permute_option=%d\n",permute_option); fflush(NULL);
+
+    // prototype: struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned int catspat, char universe_file[], unsigned int in_universe_cnt,unsigned int *in_universe, char custom_file[], unsigned int *real_universe_cnt_ptr,unsigned int **real_universe,unsigned int lencust,struct custom_type *mycustompw);
     u = setup_used_paths(&num_used_paths, catspat,universe_file, 0,(void *)0,custom_file,&real_universe_cnt,&real_universe,0,(struct custom_type *)0);
     if (get_universe_flag == 1)
     {
@@ -3485,7 +3486,7 @@ int main(int argc,char *argv[])
     if (pathcalls_tech) fclose(pathcalls_tech);
 #endif
 
-fprintf(stderr,"rpf near end of main()\n"); fflush(NULL);
+// fprintf(stderr,"rpf near end of main()\n"); fflush(NULL);
 
 #if 0
        // next three lines are for valgrind
@@ -3613,11 +3614,5 @@ D – number of hits
 Odds_ratio              odds ratio
 Sum_of_pathways         Sum of unique pathways where pathway genes are also found
  
-*/
-
-
-/*
-put_count_tree_to_array (l2p.c:1523)
-==12595==    by 0xFA97253: GPCC (l2p.c:2012)
 */
 
