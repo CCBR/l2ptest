@@ -3,7 +3,19 @@
 #define   PATHWORKS_H 1
 #endif
 
-#define RADIX 1
+    // use radix sort instead of qsort because it is faster
+#define RADIX_SORT 1
+
+#define CALC_OPTION_FE 0
+#define CALC_OPTION_GPCC 1
+#define CALC_OPTION_PERMUTE 2
+#define CALC_OPTION_PERMUTE3 3
+#define CALC_OPTION_GPCC2 4
+#define CALC_OPTION_GPCC3 5
+#define CALC_OPTION_GPCC4 6
+
+#define PERMUTE_DEFAULT_LOW 5000
+
     // #define MAXBSID 25000
     // last count: 24376  pathworks.txt
     //
@@ -222,12 +234,12 @@ struct smallgenetype
 
 struct tree_with_count
 {
-    unsigned int val; // entrez gene id
-    unsigned int count; // times
-    unsigned int deg; // 1 on deglist, 0 not on
+    unsigned int val;   // entrez gene id : sometimes called "egid"
+    unsigned int count; // number of pathways this gene hits
+    unsigned int deg;   // 1 on deglist, 0 not on  ( deglist = "differentially expressed gene list" , aka user inlist)
     struct tree_with_count *left;
     struct tree_with_count *right;
-    struct used_path_type **all_gene_paths; // all gene paths is an array of pointers
+    struct used_path_type **all_gene_paths; // all gene paths is an array of pointers ( of "count" size).
     unsigned int pathindex; // which array member gets the pointer to pathway?
 };
 struct used_path_type
@@ -235,24 +247,24 @@ struct used_path_type
     unsigned int category;
     char *acc;
     char *name;
-    unsigned int numgenes;
-    unsigned int numfixedgenes;
+    unsigned int numgenes;   // original number of genes in pathway
+    unsigned int numfixedgenes; // after fixing
+    unsigned int *egids;
     unsigned int hitcnt;
-    unsigned int aughitcnt;
-    double pathhits_gpsum;
-    unsigned int pathcountsum;
-    unsigned int *genehits; // put hits here, reason: need to print them out
+    unsigned int *genehits;  // put hits here. reason: need to print them out
+    unsigned int aughitcnt;  // not used . fix
+    double pathhits_gpsum;   // # of pathways by each hit gene in pathway
+    unsigned int pathcountsum; // # of pathways for each gene in pathway
     double OR;
     double gpcc_OR;
     double pval;
     double pval2; // alt
-    double pval3; // permute
+    double permute_pval; // permute
     double gpcc_p;
     double fdr;
     double gpcc_fdr;
     double enrichment_score;                  // ratio
     unsigned int pwgenesindex;
-    unsigned int *egids;
     // orginal george int a,b,c,d;  // a=universe-userinput-pwgenes-list b=pw-hits, c=degs-hits , d = number of hits
     unsigned int a,b,c,d;  // a=universe-userinput-pwgenes-list b=pw-hits, c=degs-hits , d = number of hits
     unsigned int A_scaled,B_scaled,C_scaled,D_scaled;
@@ -327,8 +339,11 @@ unsigned int GPCC(struct used_path_type usedpaths[], unsigned int num_used_paths
 int do_just_bh(unsigned int ingenecnt, struct used_path_type usedpaths[], unsigned int num_used_paths,unsigned int real_universe_cnt);
 // void malloc_pathpointers(struct tree_with_count *node); // counts aligned with universe (real_universe)
 void radix_ui(register unsigned int vector[], register const unsigned int size) ;
-int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt,unsigned int *real_universe, int permute_flag, int *user_incnt_ptr, int oneside);
+int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigned int real_universe_cnt,
+             unsigned int *real_universe, int calc_option, int *user_incnt_ptr, int oneside, unsigned int numpermutes);
 struct updated_genes_type *updategenesR(char *genes[], const int len);
 struct entrez_hugo_ensemble_type *egids2hugos(unsigned int egids[], const int len);
 struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned int catspat, char universe_file[], unsigned int in_universe_cnt,unsigned int *in_universe, char custom_file[], unsigned int *real_universe_cnt_ptr,unsigned int **real_universe,unsigned int lencust,struct custom_type *mycustompw);
+void bh_adjusted(const double *p, double *pa, int size) ;
+double kt_fisher_exact(int n11, int n12, int n21, int n22, double *_left, double *_right, double *two);
 
