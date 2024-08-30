@@ -38,6 +38,18 @@ extern struct smallgenetype *by_egids;  // a copy of "genes" ,but sorted by egid
 extern unsigned int ingenes[MAX_INGENES];
 extern unsigned int ingenecnt;
 
+size_t local_version_strlcpy(char *dst, const char *s, size_t maxx) 
+{
+    size_t len = strlen(s);
+    if (len + 1 < maxx) {
+        memcpy(dst, s, len + 1);
+    } else if (maxx != 0) {
+        memcpy(dst, s, maxx - 1);
+        dst[maxx-1] = '\0';
+    }
+    return len;
+}
+
 SEXP updategenes(SEXP ingenelist, SEXP trust_flag_arg)
 {
     int protect_cnt = 0;
@@ -72,7 +84,8 @@ SEXP updategenes(SEXP ingenelist, SEXP trust_flag_arg)
     if (!genes) return (SEXP)R_NilValue;
     for (ui=0;ui<len;ui++)
     {
-        strcpy(tmps,CHAR(STRING_ELT(ingenelist, ui)));
+        // strcpy(tmps,CHAR(STRING_ELT(ingenelist, ui)));
+        local_version_strlcpy(tmps,CHAR(STRING_ELT(ingenelist, ui)),500);
         *(genes+ui) = strdup(tmps); // be sure to free these
     }
     updated_genes = updategenesR(genes,len);

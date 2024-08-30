@@ -1,12 +1,15 @@
 
 CC=gcc
 RM=rm -f
+
 # fave ..
-CFLAGS=-Wextra -Wall -O2 -funroll-loops -march=native -flto -pipe -minline-all-stringops 
+CFLAGS=-Wextra -Wall -Werror -O2 -funroll-loops -march=native -flto -pipe -minline-all-stringops -Wmaybe-uninitialized
+
 LDFLAGS=-flto -lm
 
 #debug
-#CFLAGS=-g -Wall -Werror
+#CFLAGS=-g -Wall -Werror 
+# -Wextra 
 #LDFLAGS=-lm
 
 #CFLAGS=-Werror=implicit-function-declaration -Werror=implicit-fallthrough=3 -Werror=maybe-uninitialized -Werror=missing-field-initializers -Werror=incompatible-pointer-types -Werror=int-conversion -Werror=redundant-decls -Werror=parentheses -Wformat-nonliteral -Wformat-security -Wformat -Winit-self -Wmaybe-uninitialized -Wold-style-definition -Wredundant-decls -Wstrict-prototypes  -O2 -funroll-loops -march=native -flto -pipe -minline-all-stringops 

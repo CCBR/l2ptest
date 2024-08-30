@@ -3,6 +3,8 @@
 #define   PATHWORKS_H 1
 #endif
 
+#include "stddef.h"
+
     // use radix sort instead of qsort because it is faster
 #define RADIX_SORT 1
 
@@ -15,10 +17,6 @@
 #define CALC_OPTION_GPCC4 6
 
 #define PERMUTE_DEFAULT_LOW 5000
-
-    // #define MAXBSID 25000
-    // last count: 24376  pathworks.txt
-    //
 #define MAXBSIDPOSSIBLE 851568   
      // for pwharvest
 
@@ -137,6 +135,12 @@ struct genelisttype // used by harvest programs
     struct genelisttype *n;
 };
 
+struct raw_genelisttype // used by harvest programs 
+{
+    char *raw; // raw gene name 
+    struct raw_genelisttype *n;
+};
+
 struct bstype // biosystems id and info - input into this array  -- used by harvest programs 
 {
     int bsid;
@@ -150,7 +154,8 @@ struct bstype // biosystems id and info - input into this array  -- used by harv
     int redundant;       // flag for checking to see if this pathway is duplicated by another pathway 
 // next two fields get values from other file
     int numgenes;       // "count of" in next line of code line (i.e. number of genes)
-    struct genelisttype *geneslinkedlist; // a linked list
+    struct genelisttype *geneslinkedlist;     // a linked list of FINAL genes
+    struct raw_genelisttype *raw_genes_linkedlist; // a linked list of raw genes
 };
 
 
@@ -162,7 +167,7 @@ struct hugo_type
 };
 
 struct genetype // from ncbi
-{                              /// this is only used in pwharvest, l2p uses bingenetype
+{   // this is (may) only used in pwharvest, l2p uses bingenetype
     int geneid;
     char *hugo;
     char *ensembl;
@@ -232,19 +237,10 @@ struct smallgenetype
     unsigned int egid;              // entrez gene id
 };
 
-struct tree_with_count
-{
-    unsigned int val;   // entrez gene id : sometimes called "egid"
-    unsigned int count; // number of pathways this gene hits
-    unsigned int deg;   // 1 on deglist, 0 not on  ( deglist = "differentially expressed gene list" , aka user inlist)
-    struct tree_with_count *left;
-    struct tree_with_count *right;
-    struct used_path_type **all_gene_paths; // all gene paths is an array of pointers ( of "count" size).
-    unsigned int pathindex; // which array member gets the pointer to pathway?
-};
 struct used_path_type
 {
     unsigned int category;
+    char *custom_category_name;
     char *acc;
     char *name;
     unsigned int numgenes;   // original number of genes in pathway
@@ -281,10 +277,21 @@ struct used_path_type
     double fdr4;
 };
 
+struct tree_with_count
+{
+    unsigned int val;   // entrez gene id : sometimes called "egid"
+    unsigned int count; // number of pathways this gene hits
+    unsigned int deg;   // 1 on deglist, 0 not on  ( deglist = "differentially expressed gene list" , aka user inlist)
+    struct tree_with_count *left;
+    struct tree_with_count *right;
+    struct used_path_type **all_gene_paths; // all gene paths is an array of pointers ( of "count" size).
+    unsigned int pathindex; // which array member gets the pointer to pathway?
+};
+
 struct custom_type
 {
     char *name;
-    char *optional;
+    char *optional; // should in practice be the accession ?
     unsigned int numgenes;
     unsigned int *genes;
 };
@@ -343,7 +350,7 @@ int l2pfunc(struct used_path_type *usedpaths,unsigned int num_used_paths,unsigne
              unsigned int *real_universe, int calc_option, int *user_incnt_ptr, int oneside, unsigned int numpermutes);
 struct updated_genes_type *updategenesR(char *genes[], const int len);
 struct entrez_hugo_ensemble_type *egids2hugos(unsigned int egids[], const int len);
-struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned int catspat, char universe_file[], unsigned int in_universe_cnt,unsigned int *in_universe, char custom_file[], unsigned int *real_universe_cnt_ptr,unsigned int **real_universe,unsigned int lencust,struct custom_type *mycustompw);
+struct used_path_type *setup_used_paths(unsigned int *num_used_paths, unsigned int catspat, char universe_file[], unsigned int in_universe_cnt,unsigned int *in_universe, char custom_file[], unsigned int gmtfld2, unsigned int *real_universe_cnt_ptr,unsigned int **real_universe,unsigned int lencust,struct custom_type *mycustompw);
 void bh_adjusted(const double *p, double *pa, int size) ;
 double kt_fisher_exact(int n11, int n12, int n21, int n22, double *_left, double *_right, double *two);
-
+size_t my_strlcpy(char *dst, const char *s, size_t maxx);
